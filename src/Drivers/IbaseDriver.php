@@ -57,6 +57,10 @@ final class IbaseDriver implements DatabaseDriverInterface
             ? \ibase_query($target, $query)
             : \ibase_execute(\ibase_prepare($target, $query), ...$params);
 
+        if ($result === false) {
+            throw new \RuntimeException(\ibase_errmsg());
+        }
+
         if (is_resource($result)) {
             $rows = [];
             while ($row = \ibase_fetch_assoc($result)) {
@@ -67,6 +71,42 @@ final class IbaseDriver implements DatabaseDriverInterface
         }
 
         return true;
+    }
+
+    /**
+     * Inserts or updates using the Ibase UPDATE OR INSERT syntax.
+     *
+     * @param string $table Table name.
+     * @param array<string, mixed> $data Column values.
+     * @param list<string> $uniqueBy Unique-key columns used by MATCHING.
+     */
+    public function upsert(string $table, array $data, array $uniqueBy): bool
+    {
+        [$columns, $uniqueBy] = self::validateUpsert($table, $data, $uniqueBy);
+        $columnList = implode(', ', $columns);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $matching = implode(', ', $uniqueBy);
+        $sql = "UPDATE OR INSERT INTO {$table} ({$columnList}) "
+            . "VALUES ({$placeholders}) MATCHING ({$matching})";
+
+        return $this->query($sql, array_values($data)) === true;
+    }
+
+    /** @return array{list<string>, list<string>} */
+    private static function validateUpsert(string $table, array $data, array $uniqueBy): array
+    {
+        $columns = array_keys($data);
+        foreach ([$table, ...$columns, ...$uniqueBy] as $identifier) {
+            if (!is_string($identifier) || !preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $identifier)) {
+                throw new \InvalidArgumentException('Invalid upsert SQL identifier.');
+            }
+        }
+
+        if ($data === [] || $uniqueBy === [] || array_diff($uniqueBy, $columns) !== []) {
+            throw new \InvalidArgumentException('Upsert requires data and unique columns included in that data.');
+        }
+
+        return [array_values($columns), array_values($uniqueBy)];
     }
 
     /** Starts an Ibase transaction for subsequent queries. */
@@ -99,6 +139,11 @@ final class IbaseDriver implements DatabaseDriverInterface
     public function getInsertId(): int
     {
         return 0;
+    }
+
+    public function getDriverName(): string
+    {
+        return 'firebird';
     }
 
     /**

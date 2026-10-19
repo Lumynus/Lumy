@@ -27,6 +27,19 @@ interface DatabaseDriverInterface
         string|array $types = ''
     ): array|bool;
 
+    /**
+     * Inserts a row or updates it when a unique key already exists.
+     *
+     * @param string $table Table name.
+     * @param array<string, mixed> $data Column values to insert or update.
+     * @param list<string> $uniqueBy Columns covered by a unique constraint.
+     * @return bool True when the statement executes successfully.
+     */
+    public function upsert(string $table, array $data, array $uniqueBy): bool;
+
+    /** Returns the SQL dialect used by this connection. */
+    public function getDriverName(): string;
+
     /** Starts a database transaction. */
     public function beginTransaction(): void;
 

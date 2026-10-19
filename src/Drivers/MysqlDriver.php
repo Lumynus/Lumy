@@ -74,6 +74,55 @@ final class MysqlDriver implements DatabaseDriverInterface
         return $result ? $result->fetch_all(MYSQLI_ASSOC) : true;
     }
 
+    /**
+     * Inserts or updates using MySQL's ON DUPLICATE KEY UPDATE syntax.
+     *
+     * MySQL detects conflicts through any unique index on the table; $uniqueBy
+     * determines which input columns are left unchanged during an update.
+     *
+     * @param string $table Table name.
+     * @param array<string, mixed> $data Column values.
+     * @param list<string> $uniqueBy Unique-key columns.
+     */
+    public function upsert(string $table, array $data, array $uniqueBy): bool
+    {
+        [$columns, $uniqueBy] = self::validateUpsert($table, $data, $uniqueBy);
+        $updates = array_values(array_diff($columns, $uniqueBy));
+        if ($updates === []) {
+            $updates = [$uniqueBy[0]];
+            $assignments = "{$updates[0]} = {$updates[0]}";
+        } else {
+            $assignments = implode(', ', array_map(
+                static fn (string $column): string => "{$column} = VALUES({$column})",
+                $updates
+            ));
+        }
+
+        $columnList = implode(', ', $columns);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $sql = "INSERT INTO {$table} ({$columnList}) VALUES ({$placeholders}) "
+            . "ON DUPLICATE KEY UPDATE {$assignments}";
+
+        return $this->query($sql, array_values($data)) === true;
+    }
+
+    /** @return array{list<string>, list<string>} */
+    private static function validateUpsert(string $table, array $data, array $uniqueBy): array
+    {
+        $columns = array_keys($data);
+        foreach ([$table, ...$columns, ...$uniqueBy] as $identifier) {
+            if (!is_string($identifier) || !preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $identifier)) {
+                throw new \InvalidArgumentException('Invalid upsert SQL identifier.');
+            }
+        }
+
+        if ($data === [] || $uniqueBy === [] || array_diff($uniqueBy, $columns) !== []) {
+            throw new \InvalidArgumentException('Upsert requires data and unique columns included in that data.');
+        }
+
+        return [array_values($columns), array_values($uniqueBy)];
+    }
+
     /** Starts a MySQL transaction. */
     public function beginTransaction(): void
     {
@@ -100,6 +149,11 @@ final class MysqlDriver implements DatabaseDriverInterface
     public function getInsertId(): int
     {
         return $this->mysql->insert_id;
+    }
+
+    public function getDriverName(): string
+    {
+        return 'mysql';
     }
 
     /**

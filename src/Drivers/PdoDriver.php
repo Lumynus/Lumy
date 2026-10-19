@@ -14,6 +14,9 @@ use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
  */
 final class PdoDriver implements DatabaseDriverInterface
 {
+    /** PDO driver type selected for this connection. */
+    private string $type;
+
     /** Active PDO connection. */
     private \PDO $pdo;
 
@@ -39,6 +42,7 @@ final class PdoDriver implements DatabaseDriverInterface
         mixed $password,
         string $database
     ) {
+        $this->type = strtolower($type);
         $dsn = match ($type) {
             'sqlite' => "sqlite:{$database}",
             'postgresql' => "pgsql:host={$host};dbname={$database}",
@@ -57,6 +61,85 @@ final class PdoDriver implements DatabaseDriverInterface
                 \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
             ]
         );
+    }
+
+    /**
+     * Inserts or updates using the database's native upsert statement.
+     *
+     * @param string $table Table name.
+     * @param array<string, mixed> $data Column values.
+     * @param list<string> $uniqueBy Unique-key columns.
+     */
+    public function upsert(string $table, array $data, array $uniqueBy): bool
+    {
+        [$columns, $uniqueBy] = self::validateUpsert($table, $data, $uniqueBy);
+        $updates = array_values(array_diff($columns, $uniqueBy));
+        $values = array_values($data);
+
+        if ($this->type === 'sqlserver') {
+            $quotedTable = "[{$table}]";
+            $quotedColumns = array_map(static fn (string $column): string => "[{$column}]", $columns);
+            $sourceColumns = implode(', ', $quotedColumns);
+            $sourceValues = implode(', ', array_fill(0, count($columns), '?'));
+            $conditions = implode(' AND ', array_map(
+                static fn (string $column): string => "target.[{$column}] = source.[{$column}]",
+                $uniqueBy
+            ));
+            $sql = "MERGE {$quotedTable} WITH (HOLDLOCK) AS target "
+                . "USING (VALUES ({$sourceValues})) AS source ({$sourceColumns}) "
+                . "ON {$conditions} ";
+
+            if ($updates !== []) {
+                $assignments = implode(', ', array_map(
+                    static fn (string $column): string => "target.[{$column}] = source.[{$column}]",
+                    $updates
+                ));
+                $sql .= "WHEN MATCHED THEN UPDATE SET {$assignments} ";
+            }
+
+            $insertColumns = implode(', ', $quotedColumns);
+            $insertValues = implode(', ', array_map(
+                static fn (string $column): string => "source.[{$column}]",
+                $columns
+            ));
+            $sql .= "WHEN NOT MATCHED THEN INSERT ({$insertColumns}) "
+                . "VALUES ({$insertValues});";
+        } else {
+            $columnList = implode(', ', $columns);
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            $conflictColumns = implode(', ', $uniqueBy);
+            $sql = "INSERT INTO {$table} ({$columnList}) VALUES ({$placeholders}) "
+                . "ON CONFLICT ({$conflictColumns}) ";
+
+            if ($updates === []) {
+                $sql .= 'DO NOTHING';
+            } else {
+                $assignments = implode(', ', array_map(
+                    static fn (string $column): string => "{$column} = excluded.{$column}",
+                    $updates
+                ));
+                $sql .= "DO UPDATE SET {$assignments}";
+            }
+        }
+
+        return $this->query($sql, $values) === true;
+    }
+
+    /** @return array{list<string>, list<string>} */
+    private static function validateUpsert(string $table, array $data, array $uniqueBy): array
+    {
+        $columns = array_keys($data);
+        foreach ([$table, ...$columns, ...$uniqueBy] as $identifier) {
+            if (!is_string($identifier) || !preg_match('/\A[A-Za-z_][A-Za-z0-9_]*\z/', $identifier)) {
+                throw new \InvalidArgumentException('Invalid upsert SQL identifier.');
+            }
+        }
+
+        if ($data === [] || $uniqueBy === [] || array_diff($uniqueBy, $columns) !== []) {
+            throw new \InvalidArgumentException('Upsert requires data and unique columns included in that data.');
+        }
+
+        return [array_values($columns), array_values($uniqueBy)];
     }
 
     /**
@@ -112,6 +195,11 @@ final class PdoDriver implements DatabaseDriverInterface
     public function getInsertId(): int
     {
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function getDriverName(): string
+    {
+        return (string) $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
     }
 
     /**
