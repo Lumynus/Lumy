@@ -32,10 +32,35 @@ final class MysqlDriver implements DatabaseDriverInterface
     public function __construct(
         string $host,
         string $user,
+        #[\SensitiveParameter]
         mixed $password,
         string $database
     ) {
-        $this->mysql = new \mysqli($host, $user, $password, $database);
+        [$hostname, $port] = self::splitHostPort($host);
+        $pass = $password === null ? null : (string) $password;
+        $this->mysql = $port !== null
+            ? new \mysqli($hostname, $user, $pass, $database, $port)
+            : new \mysqli($hostname, $user, $pass, $database);
+
+        if ($this->mysql->connect_errno !== 0) {
+            throw new \RuntimeException((string) $this->mysql->connect_error);
+        }
+
+        $this->mysql->set_charset('utf8mb4');
+    }
+
+    /** @return array{string, int|null} */
+    private static function splitHostPort(string $host): array
+    {
+        $host = trim($host);
+        if (preg_match('/\A\[([^\]]+)\]:(\d+)\z/', $host, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+        if (substr_count($host, ':') === 1 && preg_match('/\A([^:]+):(\d+)\z/', $host, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+
+        return [$host, null];
     }
 
     /**
@@ -43,9 +68,9 @@ final class MysqlDriver implements DatabaseDriverInterface
      *
      * @param string $query SQL statement with MySQLi placeholders.
      * @param array $params Positional values to bind to the statement.
-    * @param string|array $types MySQLi bind types, such as "sis"; array values are concatenated.
+     * @param string|array $types MySQLi bind types, such as "sis"; array values are concatenated.
      *
-    * @return array|bool Associative result rows, or true when the statement returns no rows.
+     * @return array|bool Associative result rows, or true when the statement returns no rows.
      *
      * @throws \RuntimeException If the statement cannot be prepared.
      * @throws \mysqli_sql_exception If binding or execution fails.
@@ -61,17 +86,43 @@ final class MysqlDriver implements DatabaseDriverInterface
         }
 
         if ($params !== []) {
+            $bindParams = array_values($params);
             $bindTypes = is_array($types) ? implode('', $types) : $types;
-            $this->stmt->bind_param(
-                $bindTypes !== '' ? $bindTypes : str_repeat('s', count($params)),
-                ...$params
-            );
+
+            if ($bindTypes === '') {
+                $inferredTypes = '';
+                foreach ($bindParams as $index => $value) {
+                    if (is_bool($value)) {
+                        $bindParams[$index] = $value ? 1 : 0;
+                        $inferredTypes .= 'i';
+                    } elseif (is_int($value)) {
+                        $inferredTypes .= 'i';
+                    } elseif (is_float($value)) {
+                        $inferredTypes .= 'd';
+                    } else {
+                        $inferredTypes .= 's';
+                    }
+                }
+                $bindTypes = $inferredTypes;
+            }
+
+            $this->stmt->bind_param($bindTypes, ...$bindParams);
         }
 
-        $this->stmt->execute();
-        $result = $this->stmt->get_result();
+        if (!$this->stmt->execute()) {
+            throw new \RuntimeException($this->stmt->error);
+        }
 
-        return $result ? $result->fetch_all(MYSQLI_ASSOC) : true;
+        if ($this->stmt->field_count === 0) {
+            return true;
+        }
+
+        $result = $this->stmt->get_result();
+        if ($result === false) {
+            throw new \RuntimeException($this->stmt->error ?: $this->mysql->error);
+        }
+
+        return $result->fetch_all(MYSQLI_ASSOC);
     }
 
     /**
@@ -126,19 +177,25 @@ final class MysqlDriver implements DatabaseDriverInterface
     /** Starts a MySQL transaction. */
     public function beginTransaction(): void
     {
-        $this->mysql->begin_transaction();
+        if (!$this->mysql->begin_transaction()) {
+            throw new \RuntimeException($this->mysql->error);
+        }
     }
 
     /** Commits the active MySQL transaction. */
     public function commit(): void
     {
-        $this->mysql->commit();
+        if (!$this->mysql->commit()) {
+            throw new \RuntimeException($this->mysql->error);
+        }
     }
 
     /** Rolls back the active MySQL transaction. */
     public function rollBack(): void
     {
-        $this->mysql->rollback();
+        if (!$this->mysql->rollback()) {
+            throw new \RuntimeException($this->mysql->error);
+        }
     }
 
     /**
@@ -148,7 +205,7 @@ final class MysqlDriver implements DatabaseDriverInterface
      */
     public function getInsertId(): int
     {
-        return $this->mysql->insert_id;
+        return (int) $this->mysql->insert_id;
     }
 
     public function getDriverName(): string
@@ -163,7 +220,7 @@ final class MysqlDriver implements DatabaseDriverInterface
      */
     public function getAffectedRows(): int
     {
-        return $this->stmt?->affected_rows ?? 0;
+        return (int) ($this->stmt?->affected_rows ?? 0);
     }
 
     /**
@@ -179,6 +236,9 @@ final class MysqlDriver implements DatabaseDriverInterface
     /** Closes the underlying MySQLi connection when this driver is destroyed. */
     public function __destruct()
     {
-        $this->mysql->close();
+        try {
+            $this->mysql->close();
+        } catch (\Throwable) {
+        }
     }
 }

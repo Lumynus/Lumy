@@ -128,7 +128,7 @@ abstract class AbstractModel extends AbstractLumy
 				throw new \InvalidArgumentException("Unknown relationship '{$name}'.");
 			}
 			$localKey = $relationship['localKey'] ?? 'id';
-			$extraSelect[$localKey] = '__lumy_relation_' . count($extraSelect);
+			$extraSelect[$localKey] ??= '__lumy_relation_' . count($extraSelect);
 		}
 
 		$select = $this->buildProjection($fielders, $camelCaseTransform, $extraSelect);
@@ -178,6 +178,7 @@ abstract class AbstractModel extends AbstractLumy
 				foreach ($preserveExtra as $internalAlias) {
 					if (array_key_exists($internalAlias, $row)) {
 						$preservedValues[$internalAlias] = $row[$internalAlias];
+						unset($row[$internalAlias]);
 					}
 				}
 				$row = $this->transformKeysToCamelCase($row);
@@ -219,7 +220,7 @@ abstract class AbstractModel extends AbstractLumy
 				}
 				$logical = $this->normalizeFieldName($field, $camelCaseTransform);
 				$databaseField = $this->resolveField($logical, false);
-				$alias = $this->fields !== [] ? $logical : $this->validateIdentifier($logical);
+				$alias = $this->validateIdentifier($logical);
 				$projections[$alias] = "{$databaseField} AS {$alias}";
 			}
 			$select = implode(', ', $projections);
@@ -230,6 +231,9 @@ abstract class AbstractModel extends AbstractLumy
 				$this->normalizeFieldName($logical, $camelCaseTransform),
 				false
 			);
+			if ($this->fields === [] && $this->alias !== '' && !str_contains($databaseField, '.')) {
+				$databaseField = $this->validateIdentifier($this->alias) . '.' . $databaseField;
+			}
 			$select .= ", {$databaseField} AS {$internalAlias}";
 		}
 
@@ -270,6 +274,11 @@ abstract class AbstractModel extends AbstractLumy
 					if ($value === [] || in_array(null, $value, true)) {
 						throw new \InvalidArgumentException('Filter lists cannot be empty or contain null.');
 					}
+					foreach ($value as $item) {
+						if (!is_scalar($item)) {
+							throw new \InvalidArgumentException('Filter values must be scalar values.');
+						}
+					}
 					if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
 						if (count($value) !== 2) {
 							throw new \InvalidArgumentException("{$operator} requires two values.");
@@ -288,11 +297,23 @@ abstract class AbstractModel extends AbstractLumy
 					continue;
 				}
 
+				if (!is_scalar($value)) {
+					throw new \InvalidArgumentException('Filter values must be scalar values.');
+				}
+
 				if (in_array($operator, ['BETWEEN', 'NOT BETWEEN', 'IN', 'NOT IN'], true)) {
 					throw new \InvalidArgumentException("{$operator} requires an array value.");
 				}
+				if (in_array($operator, ['IS', 'IS NOT'], true)) {
+					throw new \InvalidArgumentException("Operator {$operator} can only be used with null.");
+				}
 				$orParts[] = "{$column} {$operator} ?";
-				$params[] = $operator === 'LIKE' ? '%' . $value . '%' : $value;
+				if (in_array($operator, ['LIKE', 'NOT LIKE'], true)) {
+					$strVal = (string) $value;
+					$params[] = str_contains($strVal, '%') ? $strVal : "%{$strVal}%";
+				} else {
+					$params[] = $value;
+				}
 			}
 
 			$parts[] = count($orParts) > 1 ? '(' . implode(' OR ', $orParts) . ')' : $orParts[0];
@@ -332,20 +353,30 @@ abstract class AbstractModel extends AbstractLumy
 		return [$field, $operator];
 	}
 
-	private function resolveField(string $field, bool $allowQualified): string
-	{
+	private function resolveField(
+		string $field,
+		bool $allowQualified,
+		bool $allowUnmappedQualified = false
+	): string {
 		if (isset($this->fields[$field]['db'])) {
 			return $this->fields[$field]['db'];
 		}
 
-		if (
-			$allowQualified
-			&& preg_match('/\A[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\z/', $field)
-		) {
-			return $field;
-		}
-
 		if ($this->fields !== []) {
+			if (
+				$allowQualified
+				&& preg_match('/\A[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\z/', $field)
+			) {
+				if ($allowUnmappedQualified) {
+					return $field;
+				}
+				foreach ($this->fields as $definition) {
+					if (($definition['db'] ?? null) === $field) {
+						return $field;
+					}
+				}
+			}
+
 			throw new \InvalidArgumentException("Field '{$field}' is not defined in the model map.");
 		}
 
@@ -369,13 +400,12 @@ abstract class AbstractModel extends AbstractLumy
 		return strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1_$2', $value));
 	}
 
-	/** @return array<string, string> */
 	private function buildGroupBy(bool $camelCaseTransform): string
 	{
 		$fields = [];
 		foreach ($this->groupBy as $field) {
 			$name = $this->normalizeFieldName($field, $camelCaseTransform);
-			$fields[] = $this->resolveField($name, true);
+			$fields[] = $this->resolveField($name, true, true);
 		}
 
 		return implode(', ', $fields);
@@ -406,11 +436,23 @@ abstract class AbstractModel extends AbstractLumy
 		}
 
 		if ($paginate && $orders === []) {
-			$stableField = $this->groupBy[0] ?? 'id';
-			$orders[] = $this->resolveField(
-				$this->normalizeFieldName($stableField, $camelCaseTransform),
-				true
-			) . ' ASC';
+			if ($this->groupBy !== []) {
+				$orders[] = $this->resolveField(
+					$this->normalizeFieldName($this->groupBy[0], $camelCaseTransform),
+					true,
+					true
+				) . ' ASC';
+			} elseif ($this->fields !== []) {
+				$stableField = isset($this->fields['id'])
+					? 'id'
+					: (string) array_key_first($this->fields);
+				$orders[] = $this->resolveField(
+					$this->normalizeFieldName($stableField, $camelCaseTransform),
+					true
+				) . ' ASC';
+			} elseif ($this->getConnection()->getDriverName() === 'sqlsrv') {
+				$orders[] = '(SELECT NULL)';
+			}
 		}
 
 		return implode(', ', $orders);
@@ -485,7 +527,6 @@ abstract class AbstractModel extends AbstractLumy
 			)));
 			if ($ids === []) {
 				foreach ($rows as &$row) {
-					unset($row[$parentAlias]);
 					$row[$name] = ($definition['many'] ?? true) ? [] : null;
 				}
 				unset($row);
@@ -516,7 +557,6 @@ abstract class AbstractModel extends AbstractLumy
 
 			foreach ($rows as &$row) {
 				$key = (string) ($row[$parentAlias] ?? '');
-				unset($row[$parentAlias]);
 				$matches = $relatedByKey[$key] ?? [];
 				$row[$name] = ($definition['many'] ?? true)
 					? $matches

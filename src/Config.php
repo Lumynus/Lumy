@@ -42,6 +42,7 @@ final class Config
         string $driver = 'mysql',
         string $host = 'localhost',
         string $user = 'root',
+        #[\SensitiveParameter]
         mixed $password = '',
         string $database = 'lumy',
         bool $newConnection = false,
@@ -77,6 +78,7 @@ final class Config
         string $driver = 'mysql',
         string $host = 'localhost',
         string $user = 'root',
+        #[\SensitiveParameter]
         mixed $password = '',
         string $database = 'lumy',
         bool $newConnection = false,

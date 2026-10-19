@@ -52,6 +52,7 @@ abstract class LumyConnection
         string $type,
         string $host,
         string $user,
+        #[\SensitiveParameter]
         mixed $password,
         string $dataBase,
         bool $newConnection = false,
@@ -83,7 +84,16 @@ abstract class LumyConnection
         }
 
         $connection = match ($type) {
-            'mysql', 'mariadb' => new MysqlDriver($host, $user, $password, $dataBase),
+            'mysql', 'mariadb' => extension_loaded('mysqli')
+                ? new MysqlDriver($host, $user, $password, $dataBase)
+                : new PdoDriver('mysql', $host, $user, $password, $dataBase),
+            'pdo_mysql' => new PdoDriver(
+                'mysql',
+                $host,
+                $user,
+                $password,
+                $dataBase
+            ),
             'postgresql', 'sqlite', 'sqlserver' => new PdoDriver(
                 $type,
                 $host,
@@ -91,7 +101,16 @@ abstract class LumyConnection
                 $password,
                 $dataBase
             ),
-            'ibase', 'firebird' => new IbaseDriver($host, $user, $password, $dataBase),
+            'ibase', 'firebird' => function_exists('ibase_connect')
+                ? new IbaseDriver($host, $user, $password, $dataBase)
+                : new PdoDriver('firebird', $host, $user, $password, $dataBase),
+            'pdo_firebird' => new PdoDriver(
+                'firebird',
+                $host,
+                $user,
+                $password,
+                $dataBase
+            ),
             default => throw new \InvalidArgumentException(
                 "Unsupported database type: {$type}"
             ),
@@ -120,16 +139,21 @@ abstract class LumyConnection
      *
      * @return array{string, string, string, mixed, string} Normalized values in the same argument order.
      *
-     * @throws \InvalidArgumentException If SQLite has no database file path.
+     * @throws \InvalidArgumentException If SQLite or Firebird has no database path.
      */
     private static function normalizeConfiguration(
         string $type,
         string $host,
         string $user,
+        #[\SensitiveParameter]
         mixed $password,
         string $dataBase
     ): array {
-        $type = strtolower($type);
+        $type = match (strtolower(trim($type))) {
+            'pgsql', 'postgres' => 'postgresql',
+            'sqlsrv', 'mssql' => 'sqlserver',
+            default => strtolower(trim($type)),
+        };
 
         if ($type === 'sqlite') {
             $dataBase = $dataBase !== '' ? $dataBase : $host;
@@ -142,6 +166,16 @@ abstract class LumyConnection
             $host = '';
             $user = '';
             $password = null;
+        } elseif (in_array($type, ['ibase', 'firebird', 'pdo_firebird'], true)) {
+            if ($dataBase === '' && $host !== '') {
+                $dataBase = $host;
+                $host = '';
+            }
+            if ($dataBase === '') {
+                throw new \InvalidArgumentException(
+                    'Firebird/InterBase requires a database name or file path.'
+                );
+            }
         }
 
         return [$type, $host, $user, $password, $dataBase];

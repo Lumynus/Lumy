@@ -118,6 +118,49 @@ abstract class AbstractLumy extends LumyConnection
         return $this->getConnection()->getAffectedRows();
     }
 
+    /** Starts a database transaction on this model's connection. */
+    public function beginTransaction(): void
+    {
+        $this->getConnection()->beginTransaction();
+    }
+
+    /** Commits the active database transaction on this model's connection. */
+    public function commit(): void
+    {
+        $this->getConnection()->commit();
+    }
+
+    /** Rolls back the active database transaction on this model's connection. */
+    public function rollBack(): void
+    {
+        $this->getConnection()->rollBack();
+    }
+
+    /**
+     * Executes a callback inside a database transaction, rolling back on failure.
+     *
+     * @template T
+     * @param callable(static): T $callback
+     * @return T
+     */
+    public function transaction(callable $callback): mixed
+    {
+        $this->beginTransaction();
+        try {
+            $result = $callback($this);
+            $this->commit();
+
+            return $result;
+        } catch (\Throwable $exception) {
+            try {
+                $this->rollBack();
+            } catch (\Throwable) {
+            }
+
+            throw $exception;
+        }
+    }
+
     /** Executes a custom query using this model's configured connection. */
     protected function customQuery(
         string $query,
@@ -218,11 +261,11 @@ abstract class AbstractLumy extends LumyConnection
             foreach ($columnNames as $columnExpression) {
                 [$column, $operator] = self::parseWhereColumn(trim($columnExpression));
                 if ($value === null) {
-                    if ($operator === '=') {
+                    if ($operator === '=' || $operator === 'IS') {
                         $columnConditions[] = "{$column} IS NULL";
                         continue;
                     }
-                    if ($operator === '<>' || $operator === '!=') {
+                    if (in_array($operator, ['<>', '!=', 'IS NOT'], true)) {
                         $columnConditions[] = "{$column} IS NOT NULL";
                         continue;
                     }
@@ -255,25 +298,39 @@ abstract class AbstractLumy extends LumyConnection
                         continue;
                     }
 
-                    if ($operator !== '=' && $operator !== '<>' && $operator !== '!=') {
+                    if (!in_array($operator, ['=', '<>', '!=', 'IN', 'NOT IN'], true)) {
                         throw new \InvalidArgumentException(
                             "Operator {$operator} cannot be used with a list."
                         );
                     }
-                    $inOperator = $operator === '=' ? 'IN' : 'NOT IN';
+                    $inOperator = in_array($operator, ['<>', '!=', 'NOT IN'], true) ? 'NOT IN' : 'IN';
                     $placeholders = implode(', ', array_fill(0, count($value), '?'));
                     $columnConditions[] = "{$column} {$inOperator} ({$placeholders})";
                     $params = [...$params, ...array_values($value)];
                     continue;
                 }
 
-                if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
+                if (!is_scalar($value)) {
+                    throw new \InvalidArgumentException('WHERE values must be scalar values.');
+                }
+
+                if (in_array($operator, ['BETWEEN', 'NOT BETWEEN', 'IN', 'NOT IN'], true)) {
                     throw new \InvalidArgumentException(
-                        "{$operator} requires exactly two values."
+                        "{$operator} requires an array value."
+                    );
+                }
+                if (in_array($operator, ['IS', 'IS NOT'], true)) {
+                    throw new \InvalidArgumentException(
+                        "Operator {$operator} can only be used with null."
                     );
                 }
                 $columnConditions[] = "{$column} {$operator} ?";
-                $params[] = $value;
+                if (in_array($operator, ['LIKE', 'NOT LIKE'], true)) {
+                    $strVal = (string) $value;
+                    $params[] = str_contains($strVal, '%') ? $strVal : "%{$strVal}%";
+                } else {
+                    $params[] = $value;
+                }
             }
 
             $parts[] = count($columnConditions) > 1
@@ -289,9 +346,12 @@ abstract class AbstractLumy extends LumyConnection
     {
         $operator = '=';
         $column = $expression;
-        if (preg_match('/\A(.+?)\s+(NOT BETWEEN|BETWEEN|<=|>=|<>|!=|=|<|>)\z/i', $expression, $matches)) {
+        if (preg_match('/\A(.+?)\s+(NOT BETWEEN|NOT IN|NOT LIKE|BETWEEN|IN|LIKE|IS NOT|IS|<=|>=|<>|!=|=|<|>)\z/i', $expression, $matches)) {
             $column = trim($matches[1]);
             $operator = strtoupper($matches[2]);
+        } elseif (preg_match('/\A(NOT BETWEEN|NOT IN|NOT LIKE|BETWEEN|IN|LIKE|IS NOT|IS|<=|>=|<>|!=|=|<|>)\s+(.+)\z/i', $expression, $matches)) {
+            $operator = strtoupper($matches[1]);
+            $column = trim($matches[2]);
         }
 
         if (str_starts_with($column, '!')) {
@@ -299,8 +359,10 @@ abstract class AbstractLumy extends LumyConnection
             $operator = match ($operator) {
                 '=' => '<>',
                 'BETWEEN' => 'NOT BETWEEN',
+                'IN' => 'NOT IN',
+                'LIKE' => 'NOT LIKE',
                 default => throw new \InvalidArgumentException(
-                    'Prefix ! can only negate equality or BETWEEN.'
+                    'Prefix ! can only negate equality, IN, LIKE, or BETWEEN.'
                 ),
             };
         }

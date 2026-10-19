@@ -121,7 +121,7 @@ final class Migrations extends AbstractLumy
 
         if ($driver === 'firebird') {
             $exists = $this->customQuery(
-                'SELECT 1 FROM RDB$RELATIONS WHERE RDB$RELATION_NAME = ?',
+                'SELECT 1 FROM RDB$RELATIONS WHERE TRIM(RDB$RELATION_NAME) = ?',
                 ['LUMY_MIGRATIONS']
             );
             if (is_array($exists) && $exists !== []) {
@@ -149,6 +149,7 @@ final class Migrations extends AbstractLumy
         $statements = [];
         $statement = '';
         $quoteEnd = null;
+        $dollarQuoteTag = null;
         $lineComment = false;
         $blockComment = false;
         $length = strlen($sql);
@@ -175,9 +176,21 @@ final class Migrations extends AbstractLumy
                 continue;
             }
 
+            if ($dollarQuoteTag !== null) {
+                $tagLength = strlen($dollarQuoteTag);
+                if (substr($sql, $position, $tagLength) === $dollarQuoteTag) {
+                    $statement .= $dollarQuoteTag;
+                    $position += $tagLength - 1;
+                    $dollarQuoteTag = null;
+                    continue;
+                }
+                $statement .= $character;
+                continue;
+            }
+
             if ($quoteEnd !== null) {
                 $statement .= $character;
-                if ($character === '\\' && $quoteEnd === "'" && $nextCharacter !== '') {
+                if ($character === '\\' && ($quoteEnd === "'" || $quoteEnd === '"') && $nextCharacter !== '') {
                     $statement .= $nextCharacter;
                     $position++;
                     continue;
@@ -210,6 +223,16 @@ final class Migrations extends AbstractLumy
                 continue;
             }
 
+            if ($character === '$') {
+                $remaining = substr($sql, $position);
+                if (preg_match('/\A(\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$)/', $remaining, $matches)) {
+                    $dollarQuoteTag = $matches[1];
+                    $statement .= $dollarQuoteTag;
+                    $position += strlen($dollarQuoteTag) - 1;
+                    continue;
+                }
+            }
+
             if ($character === "'" || $character === '"' || $character === '`') {
                 $quoteEnd = $character;
                 $statement .= $character;
@@ -231,7 +254,7 @@ final class Migrations extends AbstractLumy
             $statement .= $character;
         }
 
-        if ($quoteEnd !== null || $blockComment) {
+        if ($quoteEnd !== null || $dollarQuoteTag !== null || $blockComment) {
             throw new \InvalidArgumentException('Migration contains an unterminated SQL quote or comment.');
         }
 

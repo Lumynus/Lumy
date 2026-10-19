@@ -30,10 +30,23 @@ final class IbaseDriver implements DatabaseDriverInterface
     public function __construct(
         string $host,
         string $user,
+        #[\SensitiveParameter]
         mixed $password,
         string $database
     ) {
-        $this->connection = \ibase_connect("{$host}:{$database}", $user, $password);
+        if (!function_exists('ibase_connect')) {
+            throw new \RuntimeException(
+                'The PHP InterBase/Firebird (ibase) extension is not installed or enabled.'
+            );
+        }
+
+        $target = trim($host) !== '' ? "{$host}:{$database}" : $database;
+        $this->connection = \ibase_connect($target, $user, (string) ($password ?? ''));
+        if ($this->connection === false) {
+            throw new \RuntimeException(
+                (string) \ibase_errmsg() ?: 'Unable to connect to Firebird/InterBase database.'
+            );
+        }
     }
 
     /**
@@ -45,7 +58,7 @@ final class IbaseDriver implements DatabaseDriverInterface
      * @param array $params Positional values for a prepared statement.
      * @param string|array $types Unused by this Ibase implementation.
      *
-    * @return array|bool Associative result rows, or true when the statement returns no rows.
+     * @return array|bool Associative result rows, or true when the statement returns no rows.
      */
     public function query(
         string $query,
@@ -53,19 +66,26 @@ final class IbaseDriver implements DatabaseDriverInterface
         string|array $types = ''
     ): array|bool {
         $target = $this->transaction ?: $this->connection;
-        $result = $params === []
-            ? \ibase_query($target, $query)
-            : \ibase_execute(\ibase_prepare($target, $query), ...$params);
+        if ($params === []) {
+            $result = \ibase_query($target, $query);
+        } else {
+            $prepared = \ibase_prepare($target, $query);
+            if ($prepared === false) {
+                throw new \RuntimeException((string) \ibase_errmsg());
+            }
+            $result = \ibase_execute($prepared, ...array_values($params));
+        }
 
         if ($result === false) {
-            throw new \RuntimeException(\ibase_errmsg());
+            throw new \RuntimeException((string) \ibase_errmsg());
         }
 
         if (is_resource($result)) {
             $rows = [];
             while ($row = \ibase_fetch_assoc($result)) {
-                $rows[] = $row;
+                $rows[] = array_change_key_case($row, CASE_LOWER);
             }
+            \ibase_free_result($result);
 
             return $rows;
         }
@@ -112,21 +132,39 @@ final class IbaseDriver implements DatabaseDriverInterface
     /** Starts an Ibase transaction for subsequent queries. */
     public function beginTransaction(): void
     {
-        $this->transaction = \ibase_trans($this->connection);
+        $transaction = \ibase_trans($this->connection);
+        if ($transaction === false) {
+            throw new \RuntimeException((string) \ibase_errmsg());
+        }
+        $this->transaction = $transaction;
     }
 
     /** Commits the active Ibase transaction and clears its handle. */
     public function commit(): void
     {
-        \ibase_commit($this->transaction);
+        if ($this->transaction === null) {
+            return;
+        }
+
+        $committed = \ibase_commit($this->transaction);
         $this->transaction = null;
+        if ($committed === false) {
+            throw new \RuntimeException((string) \ibase_errmsg());
+        }
     }
 
     /** Rolls back the active Ibase transaction and clears its handle. */
     public function rollBack(): void
     {
-        \ibase_rollback($this->transaction);
+        if ($this->transaction === null) {
+            return;
+        }
+
+        $rolledBack = \ibase_rollback($this->transaction);
         $this->transaction = null;
+        if ($rolledBack === false) {
+            throw new \RuntimeException((string) \ibase_errmsg());
+        }
     }
 
     /**
@@ -153,26 +191,44 @@ final class IbaseDriver implements DatabaseDriverInterface
      */
     public function getAffectedRows(): int
     {
-        return \ibase_affected_rows($this->connection);
+        $target = $this->transaction ?: $this->connection;
+
+        return (int) \ibase_affected_rows($target);
     }
 
     /**
-     * Returns the integer value reported by IBASE_STMT_ID, if available.
+     * Returns the connection identifier when available.
      *
-     * @return int|null Value returned by ibase_db_info, or null on failure.
+     * @return int|null Connection identifier, or null on failure.
      */
     public function getThreadId(): ?int
     {
-        $info = \ibase_db_info($this->connection, IBASE_STMT_ID);
+        try {
+            if (function_exists('ibase_db_info') && defined('IBASE_STMT_ID')) {
+                $info = \ibase_db_info($this->connection, constant('IBASE_STMT_ID'));
+                if ($info !== false) {
+                    return (int) $info;
+                }
+            }
 
-        return $info !== false ? (int) $info : null;
+            $rows = $this->query('SELECT CURRENT_CONNECTION AS conn_id FROM RDB$DATABASE');
+            if (is_array($rows) && isset($rows[0]['conn_id'])) {
+                return (int) $rows[0]['conn_id'];
+            }
+        } catch (\Throwable) {
+        }
+
+        return null;
     }
 
     /** Closes the native Ibase connection when this driver is destroyed. */
     public function __destruct()
     {
-        if ($this->connection) {
-            \ibase_close($this->connection);
+        try {
+            if ($this->connection) {
+                \ibase_close($this->connection);
+            }
+        } catch (\Throwable) {
         }
     }
 }
