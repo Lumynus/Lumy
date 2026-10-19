@@ -1,0 +1,16 @@
+{
+    "name": "lumynus/lumy",
+    "description": "MicroORM from Lumynus",
+    "autoload": {
+        "psr-4": {
+            "Lumynus\\Lumy\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Weleny",
+            "email": "welenysantos@gmail.com"
+        }
+    ],
+    "require": {}
+}
