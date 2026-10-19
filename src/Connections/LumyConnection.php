@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Lumynus\Lumy\Framework\Connections;
+namespace Lumynus\Lumy\Connections;
 
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
-use Lumynus\Lumy\Framework\Drivers\IbaseDriver;
-use Lumynus\Lumy\Framework\Drivers\MysqlDriver;
-use Lumynus\Lumy\Framework\Drivers\PdoDriver;
+use Lumynus\Lumy\Drivers\IbaseDriver;
+use Lumynus\Lumy\Drivers\MysqlDriver;
+use Lumynus\Lumy\Drivers\PdoDriver;
 
 /**
  * Base class for creating and managing database driver connections.

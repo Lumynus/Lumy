@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Lumynus\Lumy\Framework\Drivers;
+namespace Lumynus\Lumy\Drivers;
 
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 

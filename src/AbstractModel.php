@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Lumynus\Lumy\Framework\Connections\LumyConnection;
+use Lumynus\Lumy\Connections\LumyConnection;
 
 abstract class AbstractModel extends LumyConnection
 {
