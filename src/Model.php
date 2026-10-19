@@ -15,9 +15,9 @@ final class Model extends AbstractModel
 	/**
 	 * Returns one matching row, or null when no row matches.
 	 *
-	 * @param array<string, mixed> $filters
-	 * @param array<string>|null $fielders
-	 * @param array $with Relationships to load.
+	* @param array<string, mixed> $filters The filters used to find the row.
+	* @param array<string>|null $fielders The fields to return.
+	* @param array $with The relationships to load.
 	 * @return array<string, mixed>|null
 	 */
 	public function get(

@@ -8,17 +8,17 @@ use Lumynus\Lumy\Connections\LumyConnection;
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 
 /**
- * Base model that provides table operations to application model subclasses.
+ * Base model that provides table operations for application model subclasses.
  *
  * Set the protected $table property in a subclass to inherit insert, upsert,
- * update, and delete without reimplementing their SQL handling.
+ * update, and delete without reimplementing the underlying SQL logic.
  */
 abstract class AbstractLumy extends LumyConnection
 {
-    /** Table used by the inherited CRUD methods. */
+    /** The table used by the inherited CRUD methods. */
     protected string $table = '';
 
-    /** @var DatabaseDriverInterface|null Active connection for this model. */
+    /** @var DatabaseDriverInterface|null The active database connection for this model. */
     private ?DatabaseDriverInterface $modelConnection = null;
 
     /**
@@ -69,7 +69,7 @@ abstract class AbstractLumy extends LumyConnection
         $uniqueBy = self::validateColumns(array_values($uniqueBy));
         if (array_diff($uniqueBy, $columns) !== []) {
             throw new \InvalidArgumentException(
-                'Every unique column must be present in the upsert data.'
+                'Every unique column must be included in the upsert data.'
             );
         }
 
@@ -87,7 +87,7 @@ abstract class AbstractLumy extends LumyConnection
     {
         $table = $this->getTableName();
         if ($data === []) {
-            throw new \InvalidArgumentException('Update data cannot be empty.');
+                throw new \InvalidArgumentException('Update data must not be empty.');
         }
 
         $columns = self::validateColumns(array_keys($data));
@@ -179,7 +179,7 @@ abstract class AbstractLumy extends LumyConnection
         if (is_array($where)) {
             if ($params !== []) {
                 throw new \InvalidArgumentException(
-                    'Separate where parameters are only valid with a custom SQL expression.'
+                    'Separate WHERE parameters can only be used with a custom SQL expression.'
                 );
             }
 
@@ -199,7 +199,7 @@ abstract class AbstractLumy extends LumyConnection
     private function buildWhere(array $conditions): array
     {
         if ($conditions === []) {
-            throw new \InvalidArgumentException('WHERE conditions cannot be empty.');
+            throw new \InvalidArgumentException('WHERE conditions must not be empty.');
         }
 
         $parts = [];
@@ -235,12 +235,12 @@ abstract class AbstractLumy extends LumyConnection
                 if (is_array($value)) {
                     if ($value === [] || in_array(null, $value, true)) {
                         throw new \InvalidArgumentException(
-                            'IN and BETWEEN conditions require non-empty values without null.'
+                            'IN and BETWEEN conditions require non-empty arrays without null values.'
                         );
                     }
                     foreach ($value as $item) {
                         if (!is_scalar($item)) {
-                            throw new \InvalidArgumentException('WHERE values must be scalar.');
+                            throw new \InvalidArgumentException('WHERE values must be scalar values.');
                         }
                     }
 

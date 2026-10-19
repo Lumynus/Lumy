@@ -7,7 +7,7 @@ namespace Lumynus\Lumy\Drivers;
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 
 /**
- * PDO driver for SQLite, PostgreSQL, and Microsoft SQL Server.
+ * PDO driver for SQLite, PostgreSQL, and Microsoft SQL Server databases.
  *
  * The matching PDO extension (pdo_sqlite, pdo_pgsql, or pdo_sqlsrv) must be
  * enabled in the PHP installation.
@@ -30,7 +30,7 @@ final class PdoDriver implements DatabaseDriverInterface
      * @param string $host Database server host; unused by SQLite.
      * @param string $user Database username; unused by SQLite.
      * @param mixed $password Database password; unused by SQLite.
-     * @param string $database Database name or SQLite file path.
+    * @param string $database The database name or SQLite file path.
      *
      * @throws \InvalidArgumentException If the database type is unsupported.
      * @throws \PDOException If the PDO connection cannot be established.
@@ -152,7 +152,7 @@ final class PdoDriver implements DatabaseDriverInterface
      * @param array $params Values bound to the statement placeholders.
      * @param string|array $types Unused by this PDO implementation.
      *
-     * @return array|bool Fetched associative rows, or true for statements without rows.
+    * @return array|bool Associative result rows, or true when the statement returns no rows.
      *
      * @throws \PDOException If preparing or executing the statement fails.
      */

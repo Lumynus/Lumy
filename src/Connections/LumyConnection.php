@@ -10,9 +10,9 @@ use Lumynus\Lumy\Drivers\MysqlDriver;
 use Lumynus\Lumy\Drivers\PdoDriver;
 
 /**
- * Base class for creating and managing database driver connections.
+ * Base class for creating and managing database connections.
  *
- * Connections are reused by database configuration and connection identifier.
+ * Connections are reused based on their configuration and connection identifier.
  * Extend this class to provide an application-specific connection manager.
  */
 abstract class LumyConnection
@@ -29,7 +29,7 @@ abstract class LumyConnection
     protected static array $connections = [];
 
     /**
-     * Creates a database connection or returns a matching pooled connection.
+    * Creates a database connection or returns a matching connection from the pool.
      *
      * Supported types are mysql, mariadb, postgresql, sqlite, sqlserver,
      * ibase, and firebird. For SQLite, $dataBase is the file path; $host is

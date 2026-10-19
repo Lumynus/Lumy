@@ -6,7 +6,7 @@ namespace Lumynus\Lumy;
 
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 
-/** Base for application models with field mapping, joins, selection and relations. */
+/** Base class for application models with field mapping, joins, queries, and relationships. */
 abstract class AbstractModel extends AbstractLumy
 {
 	protected string $alias = '';
@@ -14,10 +14,10 @@ abstract class AbstractModel extends AbstractLumy
 	/** @var array<string, array{db: string, select?: bool}> */
 	protected array $fields = [];
 
-	/** @var array<int, string>|null Trusted SQL JOIN clauses configured by the model. */
+	/** @var array<int, string>|null Trusted SQL JOIN clauses defined by the model. */
 	protected ?array $joins = null;
 
-	/** @var list<string> Logical field names or qualified columns used by GROUP BY. */
+	/** @var list<string> Logical field names or qualified columns used in GROUP BY. */
 	protected array $groupBy = [];
 
 	/**
@@ -36,11 +36,11 @@ abstract class AbstractModel extends AbstractLumy
 	 *
 	 * @param array<string, mixed> $filters Structured equality/operator filters.
 	 * @param string|array $orderBy Logical field and direction, e.g. "createdAt DESC".
-	 * @param int $offset Number of result rows to skip.
-	 * @param int|null $limit Maximum rows; null disables the limit.
-	 * @param array<string>|null $fielders Logical fields to return; null uses fields marked select=true.
-	 * @param bool $camelCaseTransform Converts input field names from camelCase to snake_case and result keys back.
-	 * @param array $with Relationships to load, optionally with nested relationship names.
+	* @param int $offset The number of result rows to skip.
+	* @param int|null $limit The maximum number of rows to return; null disables the limit.
+	* @param array<string>|null $fielders Logical fields to return; null selects fields marked with select=true.
+	* @param bool $camelCaseTransform Whether to convert input field names from camelCase to snake_case and result keys back.
+	* @param array $with Relationships to load, optionally including nested relationships.
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function select(

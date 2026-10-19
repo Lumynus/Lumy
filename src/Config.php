@@ -8,8 +8,8 @@ namespace Lumynus\Lumy;
  * Stores database configurations in memory for the current PHP process.
  *
  * Configurations are indexed by connection identifier and are available to
- * every model through the static accessors. Constructing this class registers
- * a configuration for one-call setup.
+ * every model through the static accessors. Instantiating this class registers
+ * a configuration for the current PHP process.
  */
 final class Config
 {

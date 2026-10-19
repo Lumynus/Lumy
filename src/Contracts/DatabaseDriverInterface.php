@@ -7,8 +7,8 @@ namespace Lumynus\Lumy\Contracts;
 /**
  * Common API exposed by all database drivers.
  *
- * Query methods return fetched rows for statements with a result set and true
- * for statements that do not return rows.
+ * Query methods return fetched rows when a statement produces a result set, or
+ * true when it does not.
  */
 interface DatabaseDriverInterface
 {
@@ -19,7 +19,7 @@ interface DatabaseDriverInterface
      * @param array $params Values bound to the statement placeholders.
      * @param string|array $types Optional MySQLi parameter types; other drivers may ignore this value.
      *
-     * @return array|bool Fetched rows, or true when the statement has no result set.
+    * @return array|bool The fetched rows, or true when the statement has no result set.
      */
     public function query(
         string $query,

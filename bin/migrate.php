@@ -15,8 +15,8 @@ if ($connectionIdentifier === '') {
 }
 
 if (!is_file($bootstrapFile)) {
-    fwrite(STDERR, "Configuration bootstrap not found: {$bootstrapFile}" . PHP_EOL);
-    fwrite(STDERR, "Pass a PHP file that loads Composer and registers Config as the second argument." . PHP_EOL);
+    fwrite(STDERR, "Configuration bootstrap file not found: {$bootstrapFile}" . PHP_EOL);
+    fwrite(STDERR, "Pass a PHP file that loads Composer and registers the Config connection as the second argument." . PHP_EOL);
     exit(2);
 }
 

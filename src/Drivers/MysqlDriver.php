@@ -43,9 +43,9 @@ final class MysqlDriver implements DatabaseDriverInterface
      *
      * @param string $query SQL statement with MySQLi placeholders.
      * @param array $params Positional values to bind to the statement.
-     * @param string|array $types MySQLi bind types, such as "sis"; an array is concatenated.
+    * @param string|array $types MySQLi bind types, such as "sis"; array values are concatenated.
      *
-     * @return array|bool Associative result rows, or true for statements without rows.
+    * @return array|bool Associative result rows, or true when the statement returns no rows.
      *
      * @throws \RuntimeException If the statement cannot be prepared.
      * @throws \mysqli_sql_exception If binding or execution fails.

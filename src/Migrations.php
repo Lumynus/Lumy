@@ -6,7 +6,7 @@ namespace Lumynus\Lumy;
 
 use Throwable;
 
-/** Executes pending SQL migration files for a configured connection. */
+/** Runs pending SQL migration files for a configured connection. */
 final class Migrations extends AbstractLumy
 {
     private string $migrationsDirectory;
@@ -24,7 +24,7 @@ final class Migrations extends AbstractLumy
     }
 
     /**
-     * Executes pending .sql files in natural filename order.
+    * Runs pending .sql files in natural filename order.
      *
      * A migration is recorded only after all its statements succeed.
      *

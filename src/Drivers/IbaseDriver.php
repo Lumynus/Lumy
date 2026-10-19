@@ -7,7 +7,7 @@ namespace Lumynus\Lumy\Drivers;
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 
 /**
- * Firebird/InterBase driver implemented with the legacy Ibase extension API.
+ * Firebird/InterBase driver implemented with the legacy Ibase extension.
  *
  * The PHP Ibase extension must be installed and enabled.
  */
@@ -45,7 +45,7 @@ final class IbaseDriver implements DatabaseDriverInterface
      * @param array $params Positional values for a prepared statement.
      * @param string|array $types Unused by this Ibase implementation.
      *
-     * @return array|bool Associative result rows, or true for statements without rows.
+    * @return array|bool Associative result rows, or true when the statement returns no rows.
      */
     public function query(
         string $query,
