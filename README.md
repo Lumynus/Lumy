@@ -1,63 +1,132 @@
-# Lumy MicroORM
+<div align="center">
 
-**Lumy** é um MicroORM PHP leve, seguro e multi-banco desenvolvido pela **Lumynus**. Ele oferece mapeamento de campos, CRUD parametrizado, `upsert` nativo por dialeto, construção expressiva de filtros, relacionamentos `1:1` e `1:N` em lote (sem problema de *N+1* e sem corromper paginação), joins/agregações, transações, pool de conexões em memória e runner de migrations SQL.
+<a href="https://lumynus.dev" target="_blank">
+  <img src="https://lumynus.dev/images/logo.png" alt="Lumynus Logo" width="420" />
+</a>
 
----
+# Lumy
 
-## Sumário
+### **O MicroORM & Data Mapper Multi-Dialeto do Ecossistema Lumynus**
 
-1. [Bancos de Dados Suportados](#1-bancos-de-dados-suportados)
-2. [Instalação](#2-instalação)
-3. [Como Configurar Cada Banco de Dados](#3-como-configurar-cada-banco-de-dados)
-4. [Formas de Uso (Model Rápido vs. Subclasse `AbstractModel`)](#4-formas-de-uso-model-rápido-vs-subclasse-abstractmodel)
-5. [Operações CRUD e Upsert](#5-operações-crud-e-upsert)
-6. [Consultas (`select`), Filtros e Operadores](#6-consultas-select-filtros-e-operadores)
-7. [Relacionamentos (`1:1`, `1:N` e Aninhados)](#7-relacionamentos-11-1n-e-aninhados)
-8. [Joins, Aliases e Agregações (`GROUP BY`)](#8-joins-aliases-e-agregações-group-by)
-9. [Transações](#9-transações)
-10. [Múltiplas Conexões e Gerenciamento de Pool](#10-múltiplas-conexões-e-gerenciamento-de-pool)
-11. [Migrations SQL (CLI e Programático)](#11-migrations-sql-cli-e-programático)
-12. [Segurança e Boas Práticas](#12-segurança-e-boas-práticas)
-13. [Exemplos Práticos e Testes](#13-exemplos-práticos-e-testes)
+*Simples no design. Veloz por padrão. Seguro em cada query.*  
+**Tradicional no que importa. Visionário no que acelera.**
 
----
+[![PHP Version](https://img.shields.io/badge/PHP-%3E%3D%208.2-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
+[![Databases](https://img.shields.io/badge/Databases-MySQL%20%7C%20PostgreSQL%20%7C%20SQLite%20%7C%20SQL%20Server%20%7C%20Firebird-2563eb?style=for-the-badge)](https://lumy.lumynus.dev/)
+[![Ecosystem](https://img.shields.io/badge/Ecossistema-lumynus.dev-0f172a?style=for-the-badge)](https://lumynus.dev/)
+[![Docs](https://img.shields.io/badge/Docs-lumy.lumynus.dev-10b981?style=for-the-badge)](https://lumy.lumynus.dev/)
+[![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](https://lumynus.dev/)
 
-## 1. Bancos de Dados Suportados
+<p align="center">
+  <a href="https://lumy.lumynus.dev/"><strong>📚 Documentação Oficial (lumy.lumynus.dev)</strong></a> •
+  <a href="https://lumynus.dev/"><strong>🌐 Site Principal (lumynus.dev)</strong></a> •
+  <a href="#-todas-as-formas-de-usar"><strong>🚀 Guia Rápido</strong></a> •
+  <a href="#-transações-todas-as-formas-de-uso"><strong>🔄 Transações</strong></a> •
+  <a href="examples/README.md"><strong>💻 Exemplos Executáveis</strong></a>
+</p>
 
-O Lumy abstrai as diferenças de dialeto SQL (paginação, `upsert`, transações, `lastInsertId`, `threadId` e histórico de migrations) para **5 famílias de bancos de dados**:
-
-| Banco de Dados | Valores aceitos em `driver` | Extensão PHP utilizada | Sintaxe de Paginação | Sintaxe de Upsert |
-| :--- | :--- | :--- | :--- | :--- |
-| **MySQL / MariaDB** | `'mysql'`, `'mariadb'`, `'pdo_mysql'` | `ext-mysqli` (padrão) ou `ext-pdo_mysql` (fallback/explícito) | `LIMIT x OFFSET y` | `INSERT ... ON DUPLICATE KEY UPDATE` |
-| **PostgreSQL** | `'postgresql'`, `'pgsql'`, `'postgres'` | `ext-pdo_pgsql` | `LIMIT x OFFSET y` | `INSERT ... ON CONFLICT (...) DO UPDATE` |
-| **SQLite** | `'sqlite'` | `ext-pdo_sqlite` | `LIMIT x OFFSET y` | `INSERT ... ON CONFLICT (...) DO UPDATE` |
-| **SQL Server** | `'sqlserver'`, `'sqlsrv'`, `'mssql'` | `ext-pdo_sqlsrv` | `OFFSET y ROWS FETCH NEXT x ROWS ONLY` | `MERGE ... WITH (HOLDLOCK)` |
-| **Firebird / InterBase** | `'firebird'`, `'ibase'`, `'pdo_firebird'` | `ext-interbase` (`ibase`) ou `ext-pdo_firebird` (fallback automático no PHP 8+) | `ROWS m TO n` | `UPDATE OR INSERT INTO ... MATCHING (...)` |
+</div>
 
 ---
 
-## 2. Instalação
+## 🧠 O que é o Lumy? (MicroORM, Query Builder ou Data Gateway?)
 
-Requer **PHP 8.2+** (compatível com PHP 8.2, 8.3, 8.4 e 8.5).
+O **Lumy** é um **MicroORM Híbrido orientado a dados (*Array-First Data Mapper & Table Data Gateway*)** com **tradutor nativo de dialetos SQL** e **runner de migrations integrado**.
+
+Na prática, ele ocupa o ponto de equilíbrio ideal entre o **PDO puro** (que exige SQL repetitivo e manual para cada banco) e os **ORMs pesados tradicionais** (como Eloquent ou Doctrine, que hidratam centenas de objetos pesados em memória, usam reflexão/mágica excessiva e sofrem com *N+1 queries*).
+
+### Por que essa arquitetura faz diferença?
+
+1. **Mais que um Query Builder, mais leve que um ORM clássico:**
+   - Como um **ORM**, o Lumy possui mapeamento declarativo de colunas (`$fields`), ocultação automática de campos sensíveis (`'select' => false`), relacionamentos `1:1`, `1:N` e aninhados (`$relationships`), transações com savepoints e `upsert` automático.
+   - Diferente de um ORM pesado (Active Record), o Lumy é **Array-First (Zero Hydration Overhead)**: ele retorna arrays associativos puros (com conversão automática opcional `snake_case ↔ camelCase`), prontos para serialização JSON em APIs ou renderização em Views, consumindo uma fração mínima de memória e CPU.
+
+2. **Arquitetura Dual-Mode (Você escolhe como usar):**
+   - **Modo Instantâneo (`new Model('tabela')`)**: Acesse qualquer tabela imediatamente sem precisar criar uma classe dedicada — ideal para scripts, tabelas pivô/auxiliares, microsserviços e prototipação.
+   - **Modo Estruturado (`extends AbstractModel`)**: Crie Models de domínio com proteção de *whitelist* de colunas, *joins*, agregações (`GROUP BY`), relacionamentos em lote e métodos de negócio.
+
+3. **Código Único, 5 Bancos de Dados Relacionais:**
+   - O Lumy traduz automaticamente paginação (`LIMIT/OFFSET`, `OFFSET ... ROWS FETCH NEXT`, `ROWS m TO n`), `upsert()` (`ON DUPLICATE KEY UPDATE`, `ON CONFLICT DO UPDATE`, `MERGE`, `UPDATE OR INSERT`), `LIKE ESCAPE` e `SAVEPOINT` para **MySQL/MariaDB**, **PostgreSQL**, **SQLite**, **SQL Server** e **Firebird/InterBase**.
+
+### Comparativo Arquitetural
+
+| Característica | PDO / Driver Puro | **Lumy MicroORM** | ORMs Tradicionais Pesados |
+| :--- | :---: | :---: | :---: |
+| **Consumo de Memória / CPU** | Muito Baixo | **Muito Baixo (Array-First)** | Alto (Hidratação de Objetos/Proxies) |
+| **Curva de Aprendizado** | Baixa (SQL manual) | **Imediata (API limpa e explícita)** | Alta (Mágicas e convenções ocultas) |
+| **Uso sem criar classe de Model** | Manual | **Sim (`new Model('tabela')`)** | Não (Exige classes/entidades) |
+| **Proteção de Campos Ocultos** | Manual | **Nativa (`'select' => false`)** | Via propriedades adicionais |
+| **Paginação Multi-Banco Automática** | Não | **Sim (5 dialetos SQL)** | Sim |
+| **Upsert Nativo Multi-Banco** | Não | **Sim (5 dialetos SQL)** | Parcial |
+| **Relacionamentos sem N+1 e sem quebrar `LIMIT`** | Manual | **Sim (Batch Loading `IN (...)`)** | Fácil cair em N+1 involuntário |
+| **Função Global `transaction()` com Rollback Customizado** | Não | **Sim (`transaction($tx, $rollback)`)** | Não possui callback de rollback dedicado |
+| **Runner de Migrations `.sql` com Lock** | Não | **Integrado (`bin/migrate.php`)** | Geralmente exige pacotes extras |
+
+---
+
+## ✨ Principais Vantagens do Lumy
+
+- ⚡ **Performance Previsível:** Sem *lazy-loading* oculto disparando dezenas de queries escondidas. Relacionamentos são carregados apenas quando solicitados em `with` e sempre em lote (*1 query por relação*).
+- 🛡️ **Segurança por Padrão (*Secure by Design*):**
+  - 100% dos valores em `insert`, `upsert`, `update`, `delete` e `select` usam *prepared statements* tipados;
+  - Identificadores SQL validados por regex estrita contra SQL Injection;
+  - *Whitelist* automática quando `$fields` é declarado (impede filtragem ou ordenação por colunas não autorizadas);
+  - Bloqueio nativo de `UPDATE` e `DELETE` sem cláusula `WHERE`;
+  - Senhas protegidas com `#[\SensitiveParameter]` (nunca vazam em logs ou *stack traces*);
+  - Sanitização de DSN e escape automático de curingas (`%`, `_`, `\`) em buscas `LIKE`.
+- 🔄 **Transações Poderosas e Flexíveis:** Função global `transaction($transaction, $rollback)` que faz rollback automático por padrão ou executa a sua rotina customizada de rollback/compensação, com suporte a transações aninhadas (`SAVEPOINT`).
+- 🔌 **Pool Inteligente e Multi-Conexão:** Trabalhe com múltiplos bancos ao mesmo tempo (ex.: PostgreSQL como banco principal + SQLite/MySQL para auditoria ou ERP legado) — inclusive relacionando Models de conexões diferentes!
+
+---
+
+## 📖 Sumário
+
+1. [Bancos de Dados Suportados](#-1-bancos-de-dados-suportados)
+2. [Instalação](#-2-instalação)
+3. [Como Configurar Cada Banco de Dados](#-3-como-configurar-cada-banco-de-dados)
+4. [Todas as Formas de Usar (Instantâneo, Estruturado e Custom SQL)](#-4-todas-as-formas-de-usar)
+5. [Operações CRUD e Upsert Multi-Dialeto](#-5-operações-crud-e-upsert-multi-dialeto)
+6. [Consultas (`select`, `get`, `getOne`), Paginação e Operadores de Filtro](#-6-consultas-paginação-e-operadores-de-filtro)
+7. [Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)](#-7-relacionamentos-11-1n-aninhados-e-multi-conexão)
+8. [Joins, Aliases e Agregações (`GROUP BY`)](#-8-joins-aliases-e-agregações-group-by)
+9. [Transações (Todas as Formas de Uso)](#-9-transações-todas-as-formas-de-uso)
+10. [Múltiplas Conexões e Gerenciamento de Pool](#-10-múltiplas-conexões-e-gerenciamento-de-pool)
+11. [Migrations SQL (CLI e Programático)](#-11-migrations-sql-cli-e-programático)
+12. [Segurança e Boas Práticas](#-12-segurança-e-boas-práticas)
+13. [Exemplos Executáveis e Links Oficiais](#-13-exemplos-executáveis-e-links-oficiais)
+
+---
+
+## 🗄️ 1. Bancos de Dados Suportados
+
+O Lumy abstrai nativamente **5 famílias de bancos de dados relacionais**:
+
+| Banco de Dados | Valores aceitos em `driver` | Extensão PHP utilizada | Sintaxe de Paginação | Sintaxe de `upsert()` | Savepoints |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **MySQL / MariaDB** | `'mysql'`, `'mariadb'`, `'pdo_mysql'` | `ext-mysqli` (padrão) ou `ext-pdo_mysql` (fallback/explícito) | `LIMIT ? OFFSET ?` | `INSERT ... ON DUPLICATE KEY UPDATE` | `SAVEPOINT lumy_sp_N` |
+| **PostgreSQL** | `'postgresql'`, `'pgsql'`, `'postgres'` | `ext-pdo_pgsql` | `LIMIT ? OFFSET ?` | `INSERT ... ON CONFLICT (...) DO UPDATE` | `SAVEPOINT lumy_sp_N` |
+| **SQLite** | `'sqlite'` | `ext-pdo_sqlite` | `LIMIT ? OFFSET ?` | `INSERT ... ON CONFLICT (...) DO UPDATE` | `SAVEPOINT lumy_sp_N` |
+| **SQL Server** | `'sqlserver'`, `'sqlsrv'`, `'mssql'` | `ext-pdo_sqlsrv` | `OFFSET ? ROWS FETCH NEXT ? ROWS ONLY` | `MERGE INTO ... WITH (HOLDLOCK)` | `SAVE TRANSACTION lumy_sp_N` |
+| **Firebird / InterBase** | `'firebird'`, `'ibase'`, `'pdo_firebird'` | `ext-interbase` (`ibase`) ou `ext-pdo_firebird` (fallback automático no PHP 8+) | `ROWS ? TO ?` (base 1) | `UPDATE OR INSERT INTO ... MATCHING (...)` | `SAVEPOINT lumy_sp_N` |
+
+---
+
+## 📦 2. Instalação
+
+Requer **PHP 8.2 ou superior** (totalmente compatível com PHP 8.2, 8.3, 8.4 e 8.5).
 
 ```bash
 composer require lumynus/lumy
 ```
 
-Ou em desenvolvimento local no repositório:
-
-```bash
-composer dump-autoload
-```
-
 ---
 
-## 3. Como Configurar Cada Banco de Dados
+## ⚙️ 3. Como Configurar Cada Banco de Dados
 
-As configurações são registradas em memória na classe `Lumynus\Lumy\Config` (via `new Config(...)` ou `Config::setConnection(...)`). A conexão real com o banco só é aberta sob demanda quando uma Model ou Migration é utilizada.
+As conexões são registradas em memória por meio de `new Config(...)` ou `Config::setConnection(...)`. O Lumy trabalha com *lazy connection*: a conexão real com o banco só é aberta quando a primeira query é executada.
 
-### 3.1. MySQL e MariaDB
-Usa `mysqli` por padrão com `utf8mb4` automático. Caso `mysqli` não esteja instalada ou você informe `'pdo_mysql'`, utiliza `PDO` automaticamente. Você pode informar a porta junto ao host (`host:porta`).
+### 3.1. MySQL e MariaDB (`mysql`, `mariadb`, `pdo_mysql`)
+Usa `mysqli` por padrão com `utf8mb4` automático. Se `mysqli` não estiver instalada ou se você usar `'pdo_mysql'`, utiliza `PDO` automaticamente. Aceita porta customizada no `host` (`host:porta`).
 
 ```php
 use Lumynus\Lumy\Config;
@@ -72,8 +141,8 @@ new Config(
 );
 ```
 
-### 3.2. PostgreSQL
-Usa `pdo_pgsql`. Suporta porta customizada no `host` (`127.0.0.1:5432`).
+### 3.2. PostgreSQL (`postgresql`, `pgsql`, `postgres`)
+Usa `pdo_pgsql`. Suporta porta customizada no `host` (`127.0.0.1:5432`) e `sslmode` em `options`.
 
 ```php
 Config::setConnection(
@@ -86,18 +155,18 @@ Config::setConnection(
 );
 ```
 
-### 3.3. SQLite (Arquivo ou Memória)
-Usa `pdo_sqlite`. Não requer `host`, `user` ou `password`.
+### 3.3. SQLite (`sqlite` — Em Memória ou Arquivo)
+Usa `pdo_sqlite`. Não exige `host`, `user` ou `password`.
 
 ```php
-// Banco em memória (excelente para testes automatizados e prototipação)
+// Em memória (excelente para testes automatizados e prototipação)
 Config::setConnection(
     connectionIdentifier: 'default',
     driver: 'sqlite',
     database: ':memory:'
 );
 
-// Banco em arquivo físico
+// Em arquivo físico
 Config::setConnection(
     connectionIdentifier: 'local_file',
     driver: 'sqlite',
@@ -105,8 +174,8 @@ Config::setConnection(
 );
 ```
 
-### 3.4. Microsoft SQL Server
-Usa `pdo_sqlsrv`. Portas informadas no formato `127.0.0.1:1433` são convertidas automaticamente para o formato `Server=127.0.0.1,1433` exigido pelo driver SQL Server.
+### 3.4. Microsoft SQL Server (`sqlserver`, `sqlsrv`, `mssql`)
+Usa `pdo_sqlsrv`. Portas informadas como `127.0.0.1:1433` são convertidas automaticamente para `Server=127.0.0.1,1433`.
 
 ```php
 Config::setConnection(
@@ -119,98 +188,78 @@ Config::setConnection(
 );
 ```
 
-### 3.5. Firebird / InterBase
-Em ambientes legados com `ext-interbase` (`ibase_connect`), usa o driver nativo `IbaseDriver`. No PHP 8+, onde a extensão `ibase` foi descontinuada em favor do PDO, o Lumy utiliza automaticamente o `pdo_firebird` (`PdoDriver`) e normaliza os nomes das colunas para letras minúsculas.
+### 3.5. Firebird / InterBase (`firebird`, `ibase`, `pdo_firebird`)
+Usa `ibase` quando instalado ou faz fallback automático para `pdo_firebird` no PHP 8+, normalizando automaticamente os nomes das colunas para letras minúsculas e portas `host:3050` para `host/3050:database`.
 
 ```php
 Config::setConnection(
     connectionIdentifier: 'firebird_db',
     driver: 'firebird', // 'firebird', 'ibase' ou 'pdo_firebird'
-    host: '127.0.0.1',  // ou '' para acesso direto ao caminho local
+    host: '127.0.0.1:3050', // ou '' para arquivo local direto
     user: 'SYSDBA',
     password: 'masterkey',
     database: '/var/lib/firebird/data/sistema.fdb'
 );
 ```
 
-### 3.6. Opções Avançadas (SSL e Atributos PDO)
-
-O nono argumento opcional `options` permite ajustar a conexão:
-
-- **PDO** (`PdoDriver`): chaves inteiras são atributos `PDO::ATTR_*` repassados ao
-  construtor do PDO. Para PostgreSQL, a chave-string `'sslmode'` é aceita e
-  validada (`disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`).
-- **MySQLi** (`MysqlDriver`): a chave `'ssl'` recebe um array `key`, `cert`, `ca`,
-  `capath`, `cipher`, aplicado antes do handshake.
+### 3.6. Opções Avançadas (TLS/SSL e Atributos PDO)
+O argumento `options` permite configurar SSL e atributos específicos do driver:
+- **PDO (`PdoDriver`)**: aceita constantes inteiras `PDO::ATTR_*` e, no PostgreSQL, `'sslmode'` (`disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`).
+- **MySQLi (`MysqlDriver`)**: aceita `'ssl' => ['ca' => ..., 'cert' => ..., 'key' => ...]`.
 
 ```php
-new Config(
-    driver: 'postgresql',
-    host: 'db.example.com',
-    user: 'app_user',
-    password: 'secret_password',
-    database: 'minha_aplicacao',
-    options: ['sslmode' => 'require']
-);
-
 Config::setConnection(
-    connectionIdentifier: 'mysql_tls',
-    driver: 'mysql',
-    host: 'db.example.com',
+    connectionIdentifier: 'pg_secure',
+    driver: 'postgresql',
+    host: 'db.lumynus.dev:5432',
     user: 'app_user',
     password: 'secret_password',
-    database: 'minha_aplicacao',
-    options: [
-        'ssl' => [
-            'ca'   => '/etc/ssl/ca.pem',
-            'cert' => '/etc/ssl/client-cert.pem',
-            'key'  => '/etc/ssl/client-key.pem',
-        ],
-    ]
+    database: 'production_db',
+    options: ['sslmode' => 'require']
 );
 ```
 
-> O pool de conexões é indexado pelas credenciais e pelo `connectionIdentifier`
-> (o `options` não entra na chave). Registre o primeiro `Config` de um conjunto
-> de credenciais com as opções definitivas.
-
 ---
 
-## 4. Formas de Uso (Model Rápido vs. Subclasse `AbstractModel`)
+## 🚀 4. Todas as Formas de Usar
 
-O Lumy oferece duas formas complementares de trabalhar com suas tabelas:
+O Lumy oferece **3 formas complementares** de interagir com o banco de dados:
 
-### Forma 1: Uso Direto com `Lumynus\Lumy\Model` (Sem criar classes)
-Ideal para scripts rápidos, tabelas auxiliares ou prototipação. Basta passar o nome da tabela (e opcionalmente o identificador da conexão):
+### Forma 1: Uso Instantâneo com `Model` (Sem criar classes)
+Perfeito para operações rápidas, scripts, tabelas auxiliares ou quando você não quer criar uma classe para cada tabela:
 
 ```php
 use Lumynus\Lumy\Model;
 
 $users = new Model('users'); // usa a conexão 'default'
+// Para outra conexão: $audit = new Model('audit_logs', 'audit');
 
-// Inserir
+// 1. Inserir registro
 $id = $users->insert([
     'full_name' => 'Ana Silva',
-    'email' => 'ana@example.com',
+    'email'     => 'ana@lumynus.dev',
+    'status'    => 'active',
 ]);
 
-// Buscar um único registro (exclusivo da classe Model)
+// 2. Buscar um único registro (retorna array associativo ou null)
 $user = $users->get(
     filters: ['id' => $id],
     camelCaseTransform: true
 );
+// Resultado: ['id' => 1, 'fullName' => 'Ana Silva', 'email' => 'ana@lumynus.dev', 'status' => 'active']
 
-// Buscar vários registros
-$list = $users->select(
-    filters: ['fullName LIKE' => 'Ana'],
+// 3. Buscar múltiplos registros com filtro e paginação
+$activeUsers = $users->select(
+    filters: ['status' => 'active'],
     orderBy: 'id DESC',
     limit: 10,
+    offset: 0,
     camelCaseTransform: true
 );
 ```
 
-### Forma 2: Subclasse de `Lumynus\Lumy\AbstractModel` (Recomendado para Aplicações)
-Ideal para organizar regras de negócio, mapear e proteger colunas expostas (`$fields`), configurar joins (`$joins`), agregações (`$groupBy`), relacionamentos (`$relationships`) e queries customizadas (`customQuery()`):
+### Forma 2: Subclasse de `AbstractModel` (Recomendado para Domínio e APIs)
+Permite mapear colunas (`$fields`), ocultar colunas sensíveis por padrão (`'select' => false`), definir relacionamentos (`$relationships`), joins (`$joins`) e criar métodos de negócio:
 
 ```php
 use Lumynus\Lumy\AbstractModel;
@@ -220,68 +269,97 @@ class UserModel extends AbstractModel
     protected string $table = 'users';
 
     /**
-     * Mapa de campos:
-     * - A chave é o nome lógico usado pela aplicação.
-     * - 'db' é a coluna real (ou expressão SQL confiável) no banco.
-     * - 'select' define se o campo é retornado por padrão no select().
+     * Mapa de campos (Whitelist):
+     * - A chave é o nome lógico na aplicação (em snake_case).
+     * - 'db' é a coluna real (ou expressão SQL) no banco.
+     * - 'select' define se a coluna é retornada automaticamente no select().
      */
     protected array $fields = [
-        'id' => ['db' => 'users.id', 'select' => true],
-        'full_name' => ['db' => 'users.full_name', 'select' => true],
-        'email' => ['db' => 'users.email', 'select' => true],
+        'id'            => ['db' => 'users.id', 'select' => true],
+        'full_name'     => ['db' => 'users.full_name', 'select' => true],
+        'email'         => ['db' => 'users.email', 'select' => true],
+        'status'        => ['db' => 'users.status', 'select' => true],
         'password_hash' => ['db' => 'users.password_hash', 'select' => false], // Oculto por padrão!
     ];
 
-    public function findByEmail(string $email): ?array
+    public function findActiveByEmail(string $email): ?array
     {
         return $this->getOne(
-            filters: ['email' => $email],
+            filters: [
+                'email'  => $email,
+                'status' => 'active',
+            ],
             camelCaseTransform: true
         );
     }
 }
 ```
 
+### Forma 3: Queries SQL Customizadas Parametrizadas (`customQuery`)
+Dentro de qualquer subclasse de `AbstractModel`, você tem acesso ao método protegido `customQuery(string $query, array $params = [], string|array $types = '')` para executar SQL arbitrário com *prepared statements*:
+
+```php
+class ReportModel extends AbstractModel
+{
+    protected string $table = 'orders';
+
+    public function revenueByPeriod(string $startDate, string $endDate): array
+    {
+        $result = $this->customQuery(
+            'SELECT status, COUNT(id) AS total_orders, SUM(amount) AS revenue
+             FROM orders
+             WHERE created_at BETWEEN ? AND ?
+             GROUP BY status',
+            [$startDate, $endDate]
+        );
+
+        return is_array($result) ? $result : [];
+    }
+}
+```
+
 ---
 
-## 5. Operações CRUD e Upsert
+## ✍️ 5. Operações CRUD e Upsert Multi-Dialeto
 
-Todas as Models (`Model` e subclasses de `AbstractModel`) herdam os métodos de escrita de `AbstractLumy`:
+Todas as Models (`Model` e subclasses de `AbstractModel`) possuem os métodos abaixo:
 
 ### 5.1. `insert(array $data): int`
-Insere um registro usando *prepared statements* e retorna o último ID gerado pelo banco (ou `0` quando a tabela/driver não possui sequência auto-incremento).
+Insere um registro via *prepared statement* e retorna o ID gerado pelo banco (Aceita também objetos `DateTimeInterface`, formatados automaticamente como `Y-m-d H:i:s`).
 
 ```php
 $id = $userModel->insert([
-    'full_name' => 'Carlos Eduardo',
-    'email' => 'carlos@example.com',
+    'full_name'  => 'Carlos Eduardo',
+    'email'      => 'carlos@lumynus.dev',
+    'created_at' => new \DateTimeImmutable(),
 ]);
 ```
 
 ### 5.2. `upsert(array $data, array $uniqueBy): bool`
-Insere um novo registro ou atualiza os campos caso ocorra conflito nas colunas únicas informadas em `$uniqueBy`. O Lumy gera automaticamente o SQL nativo de cada banco (`ON DUPLICATE KEY UPDATE`, `ON CONFLICT DO UPDATE`, `MERGE` ou `UPDATE OR INSERT`).
+Insere um novo registro ou atualiza automaticamente caso já exista um registro com a chave única informada em `$uniqueBy`. O Lumy escreve o SQL nativo para cada banco (`ON DUPLICATE KEY UPDATE`, `ON CONFLICT DO UPDATE`, `MERGE` ou `UPDATE OR INSERT`):
 
 ```php
 $userModel->upsert(
     data: [
-        'email' => 'carlos@example.com',
+        'email'     => 'carlos@lumynus.dev',
         'full_name' => 'Carlos E. Santos',
+        'status'    => 'active',
     ],
     uniqueBy: ['email']
 );
 ```
 
 ### 5.3. `update(array $data, array|string $where, array $whereParams = []): int`
-Atualiza registros que correspondam ao filtro e retorna o número de linhas afetadas. Condições vazias são rejeitadas por segurança para impedir atualização acidental da tabela inteira.
+Atualiza os registros que atendem ao filtro e retorna o número de linhas afetadas. Condições vazias lançam exceção para proteger a tabela contra atualizações acidentais:
 
 ```php
-// Usando array estruturado de condições
+// 1. Com array de condições (seguro e expressivo)
 $affected = $userModel->update(
     data: ['full_name' => 'Carlos Santos'],
     where: ['id' => 10, 'status' => 'active']
 );
 
-// Usando expressão SQL customizada com placeholders (?)
+// 2. Com expressão SQL parametrizada
 $affected = $userModel->update(
     data: ['status' => 'inactive'],
     where: 'WHERE last_login < ? AND role <> ?',
@@ -290,13 +368,13 @@ $affected = $userModel->update(
 ```
 
 ### 5.4. `delete(array|string $where, array $whereParams = []): int`
-Remove registros que atendam às condições e retorna o total de linhas removidas. Condições vazias também são bloqueadas.
+Remove os registros correspondentes e retorna o número de linhas afetadas (também bloqueia `where` vazio):
 
 ```php
-// Usando array estruturado
+// 1. Com array de condições
 $deleted = $userModel->delete(['id' => 10]);
 
-// Usando expressão SQL parametrizada
+// 2. Com expressão SQL parametrizada
 $deleted = $userModel->delete(
     '(status = ? OR status = ?) AND verified_at IS NULL',
     ['spam', 'expired']
@@ -305,57 +383,51 @@ $deleted = $userModel->delete(
 
 ---
 
-## 6. Consultas (`select`), Filtros e Operadores
+## 🔍 6. Consultas, Paginação e Operadores de Filtro
 
-O método `select()` suporta filtros ricos, ordenação, paginação multi-banco, seleção de colunas (`fielders`), conversão `camelCase` e carregamento de relacionamentos (`with`):
-
+### 6.1. Buscando Vários Registros (`select`) e Registro Único (`get` / `getOne`)
 ```php
 $rows = $userModel->select(
     filters: [
-        'status' => ['active', 'trial'],
-        'age BETWEEN' => [18, 65],
+        'status'                     => ['active', 'trial'],
+        'age BETWEEN'                => [18, 65],
         'fullName LIKE || email LIKE' => 'silva',
-        '!deletedAt' => null,
+        '!deletedAt'                 => null,
     ],
     orderBy: 'id DESC',
     offset: 0,
     limit: 20,
-    fielders: ['id', 'fullName', 'email'],
-    camelCaseTransform: true,
-    with: ['profile', 'orders']
+    fielders: ['id', 'fullName', 'email'], // Seleciona apenas estas colunas do mapa
+    camelCaseTransform: true,              // Converte filtros e chaves do retorno para camelCase
+    with: ['profile', 'orders']            // Carrega relacionamentos em lote
 );
 ```
 
-### Tabela Completa de Operadores de Filtro (`select`, `update` e `delete`)
+### 6.2. Tabela Completa de Operadores (`select`, `update` e `delete`)
 
-| Sintaxe no Array de Filtro | SQL Gerado | Descrição |
+| Sintaxe no Array de Filtro | SQL Produzido | Descrição |
 | :--- | :--- | :--- |
 | `'age' => 18` ou `'age =' => 18` | `age = ?` | Igualdade exata |
 | `'!status' => 'blocked'` ou `'status !=' => 'blocked'` | `status <> ?` / `status != ?` | Diferente de |
 | `'age >' => 18`, `'age >=' => 18` | `age > ?`, `age >= ?` | Maior que / Maior ou igual |
 | `'age <' => 65`, `'age <=' => 65` | `age < ?`, `age <= ?` | Menor que / Menor ou igual |
-| `'name LIKE' => 'Ana'` | `name LIKE ?` (`'%Ana%'`) | Contém texto; `%` e `_` digitados sem intenção são escapados (veja a nota abaixo) |
-| `'!name LIKE' => 'Ana'` ou `'name NOT LIKE' => 'Ana'` | `name NOT LIKE ?` (`'%Ana%'`) | Não contém texto |
+| `'name LIKE' => 'Ana'` | `name LIKE ? ESCAPE ...` (`'%Ana%'`) | Contém texto (escapa `%` e `_` acidentais) |
+| `'name LIKE' => 'Ana%'` | `name LIKE ? ESCAPE ...` (`'Ana%'`) | Quando você inclui `%`, você controla os curingas |
+| `'!name LIKE' => 'Ana'` ou `'name NOT LIKE' => 'Ana'` | `name NOT LIKE ? ESCAPE ...` | Não contém texto |
 | `'status' => ['active', 'pending']` ou `'status IN' => [...]` | `status IN (?, ?)` | Pertence à lista de valores |
 | `'!status' => ['blocked', 'banned']` ou `'status NOT IN' => [...]` | `status NOT IN (?, ?)` | Não pertence à lista |
 | `'age BETWEEN' => [18, 65]` | `age BETWEEN ? AND ?` | Dentro do intervalo inclusivo |
 | `'!age BETWEEN' => [18, 65]` ou `'age NOT BETWEEN' => [18, 65]` | `age NOT BETWEEN ? AND ?` | Fora do intervalo |
 | `'email' => null` ou `'email IS' => null` | `email IS NULL` | Valor nulo |
 | `'!email' => null` ou `'email IS NOT' => null` | `email IS NOT NULL` | Valor não nulo |
-| `'email \|\| username' => 'ana'` | `(email = ? OR username = ?)` | Condição `OR` entre colunas com o mesmo valor |
-
-> **LIKE e curingas:** quando o valor não contém `%`, os caracteres `%`, `_` e `\`
-> são escapados e o padrão vira `%valor%` (busca por "contém"). Quando o valor já
-> contém `%`, ele é usado como padrão e apenas `\` é escapado, deixando você
-> controlar os curingas. Assim `'A_a'` casa literalmente `A_a` e não `Ana`,
-> enquanto `'%Maria%'` continua funcionando como busca ampla. A cláusula
-> `ESCAPE` é emitida de forma compatível com cada dialeto.
+| `'email \|\| username' => 'ana'` | `(email = ? OR username = ?)` | Agrupamento lógico `OR` entre colunas |
+| `'fullName LIKE \|\| email LIKE' => 'ana'` | `(full_name LIKE ? OR email LIKE ?)` | `OR` combinado com operadores e `camelCase` |
 
 ---
 
-## 7. Relacionamentos (`1:1`, `1:N` e Aninhados)
+## 🔗 7. Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)
 
-Para carregar dados relacionados sem sofrer com o problema de *N+1 queries* e sem que um `JOIN` 1:N multiplique linhas e quebre o `LIMIT` da paginação, declare `$relationships` na sua Model:
+O Lumy resolve relacionamentos via *Batch Eager Loading*: primeiro busca a página exata da tabela pai e depois busca todos os registros filhos daquela página com uma única query `WHERE foreign_key IN (...)` por relacionamento. Isso **elimina o problema de N+1 queries** e **impede que o `LIMIT` da paginação seja corrompido** pela multiplicação de linhas de um `JOIN`.
 
 ```php
 class CustomerModel extends AbstractModel
@@ -363,32 +435,32 @@ class CustomerModel extends AbstractModel
     protected string $table = 'customers';
 
     protected array $fields = [
-        'id' => ['db' => 'customers.id', 'select' => true],
+        'id'            => ['db' => 'customers.id', 'select' => true],
         'customer_name' => ['db' => 'customers.customer_name', 'select' => true],
     ];
 
     protected array $relationships = [
-        // Relação 1:1 (retorna array associativo ou null)
+        // Relação 1:1 (many: false -> retorna array associativo ou null)
         'address' => [
-            'model' => CustomerAddressModel::class,
-            'localKey' => 'id',
+            'model'      => CustomerAddressModel::class,
+            'localKey'   => 'id',
             'foreignKey' => 'customer_id',
-            'many' => false,
+            'many'       => false,
         ],
-        // Relação 1:N (retorna lista de arrays)
+        // Relação 1:N (many: true -> retorna lista de arrays)
         'orders' => [
-            'model' => OrderModel::class,
-            'localKey' => 'id',
+            'model'      => OrderModel::class,
+            'localKey'   => 'id',
             'foreignKey' => 'customer_id',
-            'many' => true,
-            // Opcional: permite buscar o relacionamento em outra conexão!
+            'many'       => true,
+            // Opcional: permite buscar os filhos em OUTRO banco/conexão!
             // 'connectionIdentifier' => 'orders_db',
         ],
     ];
 }
 ```
 
-Para consultar carregando relacionamentos (inclusive sub-relacionamentos aninhados):
+Carregando relacionamentos diretos e sub-relacionamentos aninhados:
 
 ```php
 $customers = (new CustomerModel())->select(
@@ -396,16 +468,16 @@ $customers = (new CustomerModel())->select(
     camelCaseTransform: true,
     with: [
         'address',
-        'orders' => ['items'], // Carrega orders e, dentro de cada order, seus items
+        'orders' => ['items'], // Carrega orders e, dentro de cada order, seus items!
     ]
 );
 ```
 
 ---
 
-## 8. Joins, Aliases e Agregações (`GROUP BY`)
+## 📊 8. Joins, Aliases e Agregações (`GROUP BY`)
 
-Para relatórios e consultas agregadas, defina `$alias`, `$joins`, expressões em `$fields` e `$groupBy`:
+Para relatórios analíticos e consultas agregadas, declare `$alias`, `$joins`, funções SQL em `$fields` e `$groupBy`:
 
 ```php
 class SaleReportModel extends AbstractModel
@@ -414,9 +486,9 @@ class SaleReportModel extends AbstractModel
     protected string $alias = 's';
 
     protected array $fields = [
-        'category_id' => ['db' => 'c.id', 'select' => true],
+        'category_id'   => ['db' => 'c.id', 'select' => true],
         'category_name' => ['db' => 'c.name', 'select' => true],
-        'total_orders' => ['db' => 'COUNT(s.id)', 'select' => true],
+        'total_orders'  => ['db' => 'COUNT(s.id)', 'select' => true],
         'total_revenue' => ['db' => 'SUM(s.amount)', 'select' => true],
     ];
 
@@ -430,9 +502,9 @@ class SaleReportModel extends AbstractModel
 
 ---
 
-## 9. Transações
+## 🔄 9. Transações (Todas as Formas de Uso)
 
-O Lumy disponibiliza uma **função global `transaction()`** (além de `\Lumynus\Lumy\transaction()`, `LumyConnection::runTransaction()` e `$model->transaction()`) para envolver várias queries em uma transação de banco de dados:
+O Lumy disponibiliza a **função global `transaction()`** (além de `\Lumynus\Lumy\transaction()`, `LumyConnection::runTransaction()` e `$model->transaction()`):
 
 ```php
 transaction(
@@ -442,8 +514,8 @@ transaction(
 ): mixed
 ```
 
-### 9.1. Função Global `transaction()` com Rollback Padrão Automático (`$rollback = null`)
-Quando você não passa o segundo parâmetro (`$rollback = null`), o sistema abre a transação, executa suas queries e faz `commit` ao final. Se qualquer erro ou exceção ocorrer, o sistema **executa o rollback automaticamente** no banco de dados e relança a exceção:
+### 9.1. Forma 1: Rollback Padrão Automático (`$rollback = null`)
+Quando você **não** passa o segundo parâmetro (`$rollback = null`), o sistema abre a transação, executa suas queries e faz `commit` ao final. Se qualquer exceção ocorrer, o Lumy **executa o `rollBack()` automaticamente** no banco e relança a exceção:
 
 ```php
 transaction(function () use ($walletModel, $logModel): void {
@@ -453,75 +525,94 @@ transaction(function () use ($walletModel, $logModel): void {
 });
 ```
 
-### 9.2. Função Global `transaction()` com Callback `$rollback` Definido pelo Usuário
-Quando você passa uma função em `$rollback`, caso ocorra uma falha dentro de `$transaction`:
-1. O Lumy desfaz a transação pendente no banco (`rollBack()`) para garantir que nenhuma query parcial fique gravada ou travando a conexão;
-2. Em seguida, executa exatamente o que você definiu no callback `$rollback` e retorna o valor produzido por ele:
+### 9.2. Forma 2: Rollback Customizado pelo Usuário (`$rollback` informado)
+Quando você passa uma função em `$rollback`, caso ocorra qualquer erro dentro de `$transaction`:
+1. O Lumy **desfaz a transação pendente no banco (`rollBack()`)** imediatamente para garantir que nenhuma alteração parcial seja salva;
+2. Em seguida, **executa o que está escrito no seu callback `$rollback`** (permitindo gravar logs de auditoria, executar compensações ou devolver um retorno amigável) e retorna o valor produzido por ele:
 
 ```php
 $resultado = transaction(
     transaction: function () use ($walletModel): array {
         $walletModel->update(['balance' => 0.00], ['id' => 1]);
-        throw new \RuntimeException('Saldo insuficiente para concluir a operação.');
+        throw new \RuntimeException('Saldo insuficiente para concluir a transferência.');
     },
     rollback: function (\Throwable $e) use ($logModel): array {
-        // Os dados alterados na transação já foram desfeitos no banco.
-        // Aqui você executa sua lógica customizada de rollback (ex.: gravar auditoria, compensação ou retorno amigável):
+        // As queries de $transaction já sofreram rollBack() no banco!
+        // Agora executamos a ação definida pelo usuário no rollback:
         $logModel->insert([
-            'status' => 'ROLLED_BACK',
+            'status'  => 'ROLLED_BACK',
             'message' => 'Rollback customizado: ' . $e->getMessage(),
         ]);
 
         return [
-            'ok' => false,
+            'ok'    => false,
             'error' => $e->getMessage(),
         ];
     }
 );
 ```
 
-#### Assinaturas suportadas pelo callback `$rollback`:
-O Lumy detecta automaticamente quantos parâmetros seu callback `$rollback` espera:
-- **Sem parâmetros:** `function (): mixed { ... }`
-- **Recebendo a exceção:** `function (\Throwable $e): mixed { ... }`
-- **Recebendo a exceção e a conexão:** `function (\Throwable $e, DatabaseDriverInterface $connection): mixed { ... }`
+#### Assinaturas aceitas pelo callback `$rollback`:
+O Lumy detecta automaticamente quantos parâmetros sua função recebe:
+- `function (): mixed` *(sem parâmetros)*
+- `function (\Throwable $e): mixed` *(recebendo a exceção)*
+- `function (\Throwable $e, DatabaseDriverInterface $connection): mixed` *(recebendo a exceção e o driver da conexão)*
 
-### 9.3. Função Global `transaction()` em Conexões Nomeadas (`$connectionIdentifier`)
-Para executar uma transação em outra conexão registrada em `Config` (como `'audit'` ou `'erp'`), informe o 3º parâmetro:
+### 9.3. Forma 3: Transações em Conexões Nomeadas (`$connectionIdentifier`)
+Para rodar uma transação em outra conexão registrada em `Config` (ex.: `'erp'` ou `'audit'`), passe o 3º parâmetro:
 
 ```php
 transaction(
     transaction: function () use ($erpModel): void {
-        $erpModel->insert(['code' => 'ORD-100', 'total' => 250.00]);
+        $erpModel->insert(['order_code' => 'ORD-500', 'total' => 980.00]);
     },
     rollback: function (\Throwable $e): void {
-        error_log('Falha no banco ERP: ' . $e->getMessage());
+        error_log('Rollback no banco ERP: ' . $e->getMessage());
     },
     connectionIdentifier: 'erp'
 );
 ```
 
-Você também pode chamar via namespace `\Lumynus\Lumy\transaction($transaction, $rollback, $connectionIdentifier)` ou via `LumyConnection::runTransaction($transaction, $rollback, $connectionIdentifier)`.
-
-### 9.4. Uso Direto na Model (`$model->transaction()`)
-O método `$model->transaction(callable $callback, ?callable $rollback = null)` funciona da mesma forma na conexão configurada na Model (passando a própria `$model` para os callbacks):
+### 9.4. Forma 4: Direto na Instância da Model (`$model->transaction()`)
 ```php
 $walletModel->transaction(
     function (WalletModel $model) use ($fromId, $toId): void {
-        $model->update(['balance' => 700], ['id' => $fromId]);
-        $model->update(['balance' => 550], ['id' => $toId]);
+        $model->update(['balance' => 700.00], ['id' => $fromId]);
+        $model->update(['balance' => 550.00], ['id' => $toId]);
     },
     function (\Throwable $e, WalletModel $model): void {
-        // Lógica opcional de rollback customizado
+        // Callback opcional de rollback customizado recebendo a exceção e a Model
     }
 );
 ```
 
-### 9.5. Controle Manual (`beginTransaction`, `commit`, `rollBack`)
+### 9.5. Forma 5: Transações Aninhadas (Savepoints Automáticos)
+Chamar `transaction()` dentro de outro `transaction()` cria automaticamente um `SAVEPOINT` (`SAVEPOINT lumy_sp_N` ou `SAVE TRANSACTION lumy_sp_N` no SQL Server). Se o bloco interno falhar, **apenas o savepoint interno é revertido**, mantendo a transação externa intacta:
+
+```php
+transaction(function () use ($walletModel, $logModel): void {
+    $walletModel->insert(['owner' => 'Alice', 'balance' => 1000.00]);
+
+    // Transação interna isolada em um SAVEPOINT:
+    transaction(
+        transaction: function () use ($walletModel): void {
+            $walletModel->insert(['owner' => 'BonusTemp', 'balance' => 50.00]);
+            throw new \RuntimeException('Bônus expirado: reverter apenas o savepoint');
+        },
+        rollback: function (\Throwable $e) use ($logModel): void {
+            $logModel->insert(['status' => 'SAVEPOINT_ROLLED_BACK', 'message' => $e->getMessage()]);
+        }
+    );
+
+    // Alice e o log SAVEPOINT_ROLLED_BACK são confirmados no COMMIT externo!
+});
+```
+
+### 9.6. Forma 6: Controle Manual (`beginTransaction`, `commit`, `rollBack`)
 ```php
 try {
     $walletModel->beginTransaction();
-    $walletModel->update(['balance' => 500], ['id' => 1]);
+    $walletModel->update(['balance' => 500.00], ['id' => 1]);
     $walletModel->commit();
 } catch (\Throwable $e) {
     $walletModel->rollBack();
@@ -529,43 +620,19 @@ try {
 }
 ```
 
-### 9.6. Transações Aninhadas (Savepoints)
-Transações aninhadas usam savepoints automaticamente em todos os drivers. Se o bloco
-interno falhar, apenas o savepoint interno é revertido e o bloco externo pode continuar:
-
-```php
-transaction(function () use ($walletModel): void {
-    $walletModel->insert(['owner' => 'Alice', 'balance' => 1000]);
-
-    transaction(
-        transaction: function () use ($walletModel): void {
-            $walletModel->insert(['owner' => 'Temp', 'balance' => 50]); // savepoint
-            throw new RuntimeException('reverte apenas o savepoint');
-        },
-        rollback: function (\Throwable $e): void {
-            // Tratado no savepoint sem abortar a transação externa
-        }
-    );
-});
-```
-
-- PDO / MySQLi / Firebird (SQLite, MySQL, MariaDB, PostgreSQL, Firebird/InterBase): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
-- SQL Server: `SAVE TRANSACTION` / `ROLLBACK TRANSACTION`.
-
-Se a conexão cair fora de uma transação, os drivers PDO e MySQLi tentam reabrir
-a conexão e repetir a operação uma única vez. Dentro de uma transação a
-reconexão é desativada para não perder o estado transacional.
-
 ---
 
-## 10. Múltiplas Conexões e Gerenciamento de Pool
+## 🔌 10. Múltiplas Conexões e Gerenciamento de Pool
 
-O `LumyConnection` mantém um pool de conexões reutilizáveis em memória durante o ciclo de vida do processo PHP, indexado pelas credenciais e pelo `connectionIdentifier`.
+O `LumyConnection` mantém um pool de conexões reutilizáveis em memória durante o ciclo de vida do processo PHP, indexado por um hash SHA-256 das credenciais e do `connectionIdentifier`.
 
 ```php
 use Lumynus\Lumy\Connections\LumyConnection;
 
-// Verificar tamanho do pool e conexões ativas
+// Obter a instância do driver de uma conexão registrada em Config
+$driver = LumyConnection::connectionFor('default');
+
+// Inspecionar conexões ativas no pool
 $activeCount = LumyConnection::poolSize();
 $identifiers = LumyConnection::identifiers();
 
@@ -578,9 +645,9 @@ LumyConnection::closeAll();
 
 ---
 
-## 11. Migrations SQL (CLI e Programático)
+## 🗂️ 11. Migrations SQL (CLI e Programático)
 
-O Lumy inclui um runner de migrations SQL que executa arquivos `.sql` em ordem natural e registra as migrations aplicadas na tabela `lumy_migrations`.
+O Lumy inclui um runner de migrations que executa arquivos `.sql` pendentes em ordem natural e registra o histórico na tabela `lumy_migrations`.
 
 ### Via CLI (`bin/migrate.php`)
 ```bash
@@ -602,32 +669,28 @@ $runner = new Migrations(
 $appliedFiles = $runner->run();
 ```
 
-Recursos suportados pelo parser de migrations do Lumy:
-- Múltiplos statements separados por `;` no mesmo arquivo `.sql`;
-- Comentários de linha (`--` e `#`) e blocos (`/* ... */`);
-- Strings com escape, identificadores entre crases, aspas ou colchetes e blocos dollar-quoted do PostgreSQL (`$$ ... $$` ou `$tag$ ... $tag$`);
-- Transação automática por arquivo em bancos que suportam DDL transacional (SQLite, PostgreSQL, SQL Server, Firebird);
-- **Lock global por pasta de migrations** para impedir execução concorrente: `GET_LOCK` (MySQL/MariaDB), `pg_try_advisory_lock` (PostgreSQL) e `sp_getapplock` (SQL Server). SQLite e Firebird não possuem lock de servidor; nesses casos a chave primária de `lumy_migrations` impede o registro duplicado. O lock é liberado sempre ao final do `run()`, inclusive em erro.
+**Destaques do Runner de Migrations:**
+- Suporta múltiplos statements separados por `;` no mesmo arquivo `.sql`;
+- Parser inteligente que respeita strings, escapes, comentários (`--`, `#`, `/* ... */`) e blocos dollar-quoted do PostgreSQL (`$$ ... $$`);
+- Execução em transação por arquivo nos bancos que suportam DDL transacional (SQLite, PostgreSQL, SQL Server, Firebird);
+- **Lock global de concorrência por pasta de migrations**: `GET_LOCK` (MySQL/MariaDB), `pg_try_advisory_lock` (PostgreSQL) e `sp_getapplock` (SQL Server).
 
 ---
 
-## 12. Segurança e Boas Práticas
+## 🛡️ 12. Segurança e Boas Práticas
 
-O Lumy foi projetado com camadas rigorosas de segurança:
-1. **Prepared Statements em 100% dos Valores:** Todos os dados de `insert()`, `upsert()`, `update()`, `delete()` e `select()` são enviados via *parameter binding* tipado (`PDO::PARAM_INT`, `PDO::PARAM_BOOL`, `PDO::PARAM_NULL`, `PDO::PARAM_STR` e inferência de tipos `i`/`d`/`s` no MySQLi). No MySQL, os *prepares* são nativos no servidor (`EMULATE_PREPARES=false`) e `MULTI_STATEMENTS` fica desativado.
-2. **Validação Estrita de Identificadores SQL:** Nomes de tabelas, colunas e aliases passam por validação de expressão regular (`/\A[A-Za-z_][A-Za-z0-9_]*\z/`), bloqueando injeção de SQL via chaves de arrays.
-3. **Proteção de Whitelist no Mapa `$fields`:** Quando uma `AbstractModel` define `$fields`, qualquer tentativa de filtrar ou ordenar por uma coluna não mapeada (mesmo que qualificada como `tabela.coluna_secreta`) é bloqueada com `InvalidArgumentException`.
-4. **Proteção de Credenciais em Stack Traces (`#[\SensitiveParameter]`):** Todos os parâmetros de senha em `Config`, `LumyConnection` e nos drivers utilizam o atributo nativo `#[\SensitiveParameter]`, evitando que senhas vazem em logs de erro ou stack traces.
-5. **Bloqueio de `UPDATE` e `DELETE` sem `WHERE`:** Condições vazias são rejeitadas por padrão para evitar perda acidental de dados.
-6. **Escape de Curingas em `LIKE`:** `%`, `_` e `\` digitados sem intenção são escapados; a cláusula `ESCAPE` respeita cada dialeto. Veja a nota na seção de filtros.
-7. **`DateTimeInterface` seguro:** Objetos `DateTimeInterface` em `insert`/`update`/`where` são formatados como `Y-m-d H:i:s` antes do binding, sem risco de fatal error.
-8. **DSN Sanitizado:** Para drivers de rede, `host` e `database` rejeitam `;`, `\x00`, `\r` e `\n`; o `sslmode` do PostgreSQL é validado por whitelist.
+1. **Prepared Statements Nativos em 100% dos Valores:** Nenhum valor de `insert`, `upsert`, `update`, `delete` ou `select` é concatenado na query. No MySQL, `EMULATE_PREPARES` e `MULTI_STATEMENTS` ficam desativados.
+2. **Validação Estrita de Identificadores SQL:** Nomes de tabelas, colunas e aliases passam por validação regex (`/\A[A-Za-z_][A-Za-z0-9_]*\z/`), impedindo SQL Injection via chaves de array.
+3. **Proteção de Whitelist no Mapa `$fields`:** Quando uma `AbstractModel` define `$fields`, qualquer tentativa de filtrar ou ordenar por uma coluna não mapeada é bloqueada com `InvalidArgumentException`.
+4. **Proteção de Credenciais (`#[\SensitiveParameter]`):** Senhas nunca aparecem em *stack traces* ou logs de exceção do PHP.
+5. **Bloqueio de `UPDATE` e `DELETE` sem `WHERE`:** Condições vazias são rejeitadas por padrão.
+6. **Escape Automático em `LIKE`:** Curingas `%`, `_` e `\` digitados sem intenção são escapados com cláusula `ESCAPE` específica para cada dialeto.
 
 ---
 
-## 13. Exemplos Práticos e Testes
+## 💻 13. Exemplos Executáveis e Links Oficiais
 
-Explore a pasta [`examples/`](examples/README.md) para ver scripts prontos e funcionais para cada recurso:
+Explore a pasta [`examples/`](examples/README.md) para testar scripts prontos e independentes (usando SQLite em memória, sem precisar subir servidores externos):
 
 ```bash
 php examples/basic-usage.php
@@ -641,15 +704,37 @@ php examples/migrations-usage.php
 php examples/all-databases-config.php
 ```
 
-Para executar a suíte de testes automatizados:
+Para rodar a suíte de testes automatizados:
 
 ```bash
 php tests/example1.php
 ```
 
-Consulte também a documentação detalhada em:
-- [Guia dos Bancos de Dados Suportados (`docs/Databases.md`)](docs/Databases.md)
-- [Guia Completo de Transações (`docs/Transactions.md`)](docs/Transactions.md)
-- [Documentação de Models (`docs/Model.md`)](docs/Model.md)
-- [Documentação de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
+### Guias Detalhados no Repositório
+- 📘 [Guia Completo de Transações (`docs/Transactions.md`)](docs/Transactions.md)
+- 🗄️ [Guia Completo dos Bancos de Dados (`docs/Databases.md`)](docs/Databases.md)
+- 🧩 [Referência de Models (`docs/Model.md`)](docs/Model.md)
+- 📦 [Referência de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
+
+---
+
+<div align="center">
+
+**Documentação Oficial do Lumy:** [https://lumy.lumynus.dev/](https://lumy.lumynus.dev/)  
+**Ecossistema Lumynus Framework:** [https://lumynus.dev/](https://lumynus.dev/)
+
+Desenvolvido com foco em simplicidade, performance e elegância por **Weleny Santos** & **Lumynus**.  
+Distribuído sob a **Licença MIT**.
+
+</div>
+
+<div align="center">
+
+**Documentação Oficial do Lumy:** [https://lumy.lumynus.dev/](https://lumy.lumynus.dev/)  
+**Ecossistema Lumynus Framework:** [https://lumynus.dev/](https://lumynus.dev/)
+
+Desenvolvido com foco em simplicidade, performance e elegância por **Weleny Santos** & **Lumynus**.  
+Distribuído sob a **Licença MIT**.
+
+</div>
 
