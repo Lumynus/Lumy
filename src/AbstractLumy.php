@@ -137,28 +137,24 @@ abstract class AbstractLumy extends LumyConnection
     }
 
     /**
-     * Executes a callback inside a database transaction, rolling back on failure.
+     * Executes a callback inside a database transaction on this model's connection.
      *
-     * @template T
-     * @param callable(static): T $callback
-     * @return T
+     * When $rollback is null, the transaction is rolled back automatically and
+     * the thrown exception is rethrown. When $rollback is provided, the
+     * uncommitted transaction is rolled back and the user-defined $rollback
+     * callback is executed.
+     *
+     * @param callable $callback Callback containing the transactional queries.
+     * @param callable|null $rollback Optional custom rollback handler invoked on failure.
      */
-    public function transaction(callable $callback): mixed
+    public function transaction(callable $callback, ?callable $rollback = null): mixed
     {
-        $this->beginTransaction();
-        try {
-            $result = $callback($this);
-            $this->commit();
-
-            return $result;
-        } catch (\Throwable $exception) {
-            try {
-                $this->rollBack();
-            } catch (\Throwable) {
-            }
-
-            throw $exception;
-        }
+        return self::runTransactionWith(
+            $this->getConnection(),
+            $this,
+            $callback,
+            $rollback
+        );
     }
 
     /** Executes a custom query using this model's configured connection. */
@@ -399,3 +395,5 @@ abstract class AbstractLumy extends LumyConnection
         return [self::validateColumns([$column])[0], $operator];
     }
 }
+
+require_once __DIR__ . '/functions.php';

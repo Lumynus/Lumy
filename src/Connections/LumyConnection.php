@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lumynus\Lumy\Connections;
 
+use Lumynus\Lumy\Config;
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 use Lumynus\Lumy\Drivers\IbaseDriver;
 use Lumynus\Lumy\Drivers\MysqlDriver;
@@ -29,7 +30,7 @@ abstract class LumyConnection
     protected static array $connections = [];
 
     /**
-    * Creates a database connection or returns a matching connection from the pool.
+     * Creates a database connection or returns a matching connection from the pool.
      *
      * Supported types are mysql, mariadb, postgresql, sqlite, sqlserver,
      * ibase, and firebird. For SQLite, $dataBase is the file path; $host is
@@ -50,6 +51,119 @@ abstract class LumyConnection
      * @throws \Throwable If the underlying driver cannot establish a connection.
      */
     public function connect(
+        string $type,
+        string $host,
+        string $user,
+        #[\SensitiveParameter]
+        mixed $password,
+        string $dataBase,
+        bool $newConnection = false,
+        string $connectionIdentifier = 'default',
+        array $options = []
+    ): DatabaseDriverInterface {
+        return self::establishConnection(
+            $type,
+            $host,
+            $user,
+            $password,
+            $dataBase,
+            $newConnection,
+            $connectionIdentifier,
+            $options
+        );
+    }
+
+    /**
+     * Resolves a pooled or new connection for a registered Config identifier.
+     *
+     * @param string $connectionIdentifier Configuration name registered in Config.
+     */
+    public static function connectionFor(string $connectionIdentifier = 'default'): DatabaseDriverInterface
+    {
+        $configuration = Config::getConnection($connectionIdentifier);
+
+        return self::establishConnection(
+            $configuration['driver'],
+            $configuration['host'],
+            $configuration['user'],
+            $configuration['password'],
+            $configuration['database'],
+            $configuration['newConnection'],
+            $connectionIdentifier,
+            $configuration['options'] ?? []
+        );
+    }
+
+    /**
+     * Executes a callback inside a database transaction for the given connection.
+     *
+     * When $rollback is null, the transaction is rolled back automatically and
+     * the thrown exception is rethrown. When $rollback is provided, the
+     * uncommitted transaction is rolled back and the user-defined $rollback
+     * callback is executed.
+     *
+     * @param callable $transaction Callback containing the transactional queries.
+     * @param callable|null $rollback Optional custom rollback handler invoked on failure.
+     * @param string $connectionIdentifier Configuration name registered in Config.
+     */
+    public static function runTransaction(
+        callable $transaction,
+        ?callable $rollback = null,
+        string $connectionIdentifier = 'default'
+    ): mixed {
+        $connection = self::connectionFor($connectionIdentifier);
+
+        return self::runTransactionWith($connection, $connection, $transaction, $rollback);
+    }
+
+    /**
+     * Internal helper that runs a transactional callback with optional custom rollback.
+     */
+    protected static function runTransactionWith(
+        DatabaseDriverInterface $connection,
+        object $context,
+        callable $transaction,
+        ?callable $rollback = null
+    ): mixed {
+        $connection->beginTransaction();
+        try {
+            $result = self::invokeTransactionCallback($transaction, [$context, $connection]);
+            $connection->commit();
+
+            return $result;
+        } catch (\Throwable $exception) {
+            try {
+                $connection->rollBack();
+            } catch (\Throwable) {
+            }
+
+            if ($rollback !== null) {
+                return self::invokeTransactionCallback($rollback, [$exception, $context, $connection]);
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Invokes a user callback passing only the arguments accepted by its signature.
+     *
+     * @param list<mixed> $args
+     */
+    private static function invokeTransactionCallback(callable $callback, array $args): mixed
+    {
+        $closure = \Closure::fromCallable($callback);
+        $reflection = new \ReflectionFunction($closure);
+        if ($reflection->isVariadic()) {
+            return $closure(...$args);
+        }
+
+        $maxParams = $reflection->getNumberOfParameters();
+
+        return $closure(...array_slice($args, 0, $maxParams));
+    }
+
+    private static function establishConnection(
         string $type,
         string $host,
         string $user,

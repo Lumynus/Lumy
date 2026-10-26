@@ -5,10 +5,22 @@ devem estender `AbstractModel`, que herda essas operações. Defina a propriedad
 `$table` para herdar `insert`, `upsert`, `update`, `delete` e `select` sem
 reescrevê-las. A conexão é selecionada pela configuração registrada em `Config`.
 
+Consulte também:
+- [Guia Completo dos Bancos de Dados Suportados (`docs/Databases.md`)](Databases.md)
+- [Guia Completo de Transações (`docs/Transactions.md`)](Transactions.md)
+- [Guia de Migrations (`docs/Migrations.md`)](Migrations.md)
+
 ## Configuração
 
 Registre a conexão antes de criar modelos. A configuração fica disponível em
 memória durante a execução atual do PHP.
+
+O Lumy suporta **5 famílias de bancos de dados**:
+- **MySQL / MariaDB**: `'mysql'`, `'mariadb'`, `'pdo_mysql'`
+- **PostgreSQL**: `'postgresql'`, `'pgsql'`, `'postgres'`
+- **SQLite**: `'sqlite'`
+- **SQL Server**: `'sqlserver'`, `'sqlsrv'`, `'mssql'`
+- **Firebird / InterBase**: `'firebird'`, `'ibase'`, `'pdo_firebird'`
 
 ```php
 <?php
@@ -76,9 +88,10 @@ aplicação. `AbstractLumy` é a base interna que fornece as regras comuns.
 
 ## Consultar um registro
 
-`Model::get()` retorna o primeiro registro encontrado ou `null`. O argumento
-`camelCaseTransform` converte nomes camelCase dos filtros para snake_case do
-banco e as chaves retornadas de volta para camelCase.
+`Model::get()` (e `AbstractModel::getOne()` nas subclasses) retorna o primeiro
+registro encontrado ou `null`. O argumento `camelCaseTransform` converte nomes
+camelCase dos filtros para snake_case do banco e as chaves retornadas de volta
+para camelCase.
 
 ```php
 $user = (new Model('users'))->get(
@@ -87,7 +100,8 @@ $user = (new Model('users'))->get(
 );
 ```
 
-Ao usar uma subclasse, `get()` não é exposto; use `select()` com limite 1.
+Em uma subclasse de `AbstractModel`, você também pode usar `$this->getOne(...)`
+dentro dos métodos de domínio da sua Model ou `select(limit: 1)`.
 
 ## Consultar vários registros
 
@@ -400,15 +414,16 @@ grupo `||`. Para alternativas sobre a mesma coluna, use `IN`, por exemplo
 
 ## Negação
 
-O prefixo `!` nega igualdade, `IN` e `BETWEEN`:
+O prefixo `!` nega igualdade, `IN`, `LIKE` e `BETWEEN`:
 
 ```php
 $users->delete(['!status' => 'blocked']);
 $users->delete(['!status' => ['blocked', 'inactive']]);
 $users->delete(['!age BETWEEN' => [18, 65]]);
+$users->delete(['!name LIKE' => 'teste']);
 ```
 
-Eles geram `<>`, `NOT IN` e `NOT BETWEEN`, respectivamente.
+Eles geram `<>`, `NOT IN`, `NOT BETWEEN` e `NOT LIKE`, respectivamente.
 
 ## LIKE e NOT LIKE
 
@@ -433,35 +448,68 @@ string personalizado), o escape não é aplicado automaticamente.
 
 ## Transações
 
-`transaction()` agrupa operações e aceita callbacks. Transações aninhadas usam
-savepoints nos drivers que os suportam:
+O Lumy oferece a função global `transaction(callable $transaction, ?callable $rollback = null, string $connectionIdentifier = 'default')` e o método `$model->transaction(callable $callback, ?callable $rollback = null)`.
+
+### 1. Rollback Padrão Automático (`$rollback = null`)
+Quando `$rollback` não é informado, qualquer exceção lançada dentro da transação dispara automaticamente o `rollBack()` no banco e relança a exceção:
 
 ```php
-$users->transaction(function ($model): void {
-    $model->insert([...]);
-    $model->transaction(function ($inner): void {
-        $inner->insert([...]); // savepoint
-    });
+transaction(function () use ($users): void {
+    $users->insert(['name' => 'Ana', 'email' => 'ana@example.com']);
+    $users->update(['status' => 'active'], ['email' => 'ana@example.com']);
 });
 ```
 
-- PDO (MySQL, PostgreSQL, SQLite): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
+### 2. Rollback Definido pelo Usuário (`$rollback` customizado)
+Quando você fornece uma função em `$rollback`, caso ocorra uma falha em `$transaction`, o sistema desfaz a transação pendente no banco (`rollBack()`) e executa o que está definido no seu callback `$rollback` (retornando seu resultado):
+
+```php
+$resultado = transaction(
+    transaction: function () use ($users): array {
+        $users->insert(['name' => 'Ana', 'email' => 'ana@example.com']);
+        throw new \RuntimeException('Falha ao validar cadastro');
+    },
+    rollback: function (\Throwable $e) use ($auditLogs): array {
+        $auditLogs->insert(['message' => 'Rollback executado: ' . $e->getMessage()]);
+        return ['ok' => false, 'error' => $e->getMessage()];
+    }
+);
+```
+
+### 3. Transações Aninhadas (Savepoints)
+Transações aninhadas usam savepoints em todos os drivers:
+
+```php
+transaction(function () use ($users): void {
+    $users->insert(['name' => 'Registro Externo', 'email' => 'ext@example.com']);
+
+    transaction(
+        transaction: function () use ($users): void {
+            $users->insert(['name' => 'Savepoint Interno', 'email' => 'int@example.com']);
+            throw new \RuntimeException('Reverte apenas o savepoint interno');
+        },
+        rollback: function (\Throwable $e): void {
+            // Savepoint revertido; a transação externa continua válida
+        }
+    );
+});
+```
+
+- PDO / MySQLi / Firebird (`PdoDriver`, `MysqlDriver`, `IbaseDriver`): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
 - SQL Server: `SAVE TRANSACTION` / `ROLLBACK TRANSACTION`.
-- MySQLi (`MysqlDriver`): savepoints equivalentes ao PDO.
-- Ibase/Firebird nativo: **não** suporta aninhamento; o segundo
-  `beginTransaction()` lança `RuntimeException`. Use a variante `pdo_firebird`
-  se precisar de savepoints.
 
 Quando a conexão cai fora de uma transação, os drivers PDO e MySQLi tentam
 reabrir a conexão e repetir a operação uma única vez. Dentro de uma transação a
 reconexão é desativada para não perder o estado transacional.
+
+Veja todos os detalhes e variações em [`docs/Transactions.md`](Transactions.md).
 
 ## Segurança e limitações
 
 - Os valores de `insert`, `update` e `where` são enviados por parâmetros
   preparados.
 - Expressões `WHERE` personalizadas são SQL escrito pelo desenvolvedor; use
-    placeholders (`?`) para valores e nunca concatene entrada não confiável.
+  placeholders (`?`) para valores e nunca concatene entrada não confiável.
 - Em `LIKE`, curingas digitados sem intenção são escapados; veja a seção
   "LIKE e NOT LIKE" para o comportamento exato.
 - Os operadores aceitos são validados pelo modelo.

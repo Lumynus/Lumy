@@ -432,17 +432,92 @@ class SaleReportModel extends AbstractModel
 
 ## 9. Transações
 
-Todas as Models disponibilizam métodos diretos para transações no banco de dados:
+O Lumy disponibiliza uma **função global `transaction()`** (além de `\Lumynus\Lumy\transaction()`, `LumyConnection::runTransaction()` e `$model->transaction()`) para envolver várias queries em uma transação de banco de dados:
 
-### Uso Recomendado (Bloco `transaction` com Rollback Automático)
 ```php
-$walletModel->transaction(function (WalletModel $model) use ($fromId, $toId, $amount): void {
-    $model->update(['balance' => $newSenderBalance], ['id' => $fromId]);
-    $model->update(['balance' => $newReceiverBalance], ['id' => $toId]);
+transaction(
+    callable $transaction,
+    ?callable $rollback = null,
+    string $connectionIdentifier = 'default'
+): mixed
+```
+
+### 9.1. Função Global `transaction()` com Rollback Padrão Automático (`$rollback = null`)
+Quando você não passa o segundo parâmetro (`$rollback = null`), o sistema abre a transação, executa suas queries e faz `commit` ao final. Se qualquer erro ou exceção ocorrer, o sistema **executa o rollback automaticamente** no banco de dados e relança a exceção:
+
+```php
+transaction(function () use ($walletModel, $logModel): void {
+    $walletModel->update(['balance' => 700.00], ['id' => 1]);
+    $walletModel->update(['balance' => 550.00], ['id' => 2]);
+    $logModel->insert(['status' => 'SUCCESS', 'message' => 'Transferência concluída']);
 });
 ```
 
-### Controle Manual
+### 9.2. Função Global `transaction()` com Callback `$rollback` Definido pelo Usuário
+Quando você passa uma função em `$rollback`, caso ocorra uma falha dentro de `$transaction`:
+1. O Lumy desfaz a transação pendente no banco (`rollBack()`) para garantir que nenhuma query parcial fique gravada ou travando a conexão;
+2. Em seguida, executa exatamente o que você definiu no callback `$rollback` e retorna o valor produzido por ele:
+
+```php
+$resultado = transaction(
+    transaction: function () use ($walletModel): array {
+        $walletModel->update(['balance' => 0.00], ['id' => 1]);
+        throw new \RuntimeException('Saldo insuficiente para concluir a operação.');
+    },
+    rollback: function (\Throwable $e) use ($logModel): array {
+        // Os dados alterados na transação já foram desfeitos no banco.
+        // Aqui você executa sua lógica customizada de rollback (ex.: gravar auditoria, compensação ou retorno amigável):
+        $logModel->insert([
+            'status' => 'ROLLED_BACK',
+            'message' => 'Rollback customizado: ' . $e->getMessage(),
+        ]);
+
+        return [
+            'ok' => false,
+            'error' => $e->getMessage(),
+        ];
+    }
+);
+```
+
+#### Assinaturas suportadas pelo callback `$rollback`:
+O Lumy detecta automaticamente quantos parâmetros seu callback `$rollback` espera:
+- **Sem parâmetros:** `function (): mixed { ... }`
+- **Recebendo a exceção:** `function (\Throwable $e): mixed { ... }`
+- **Recebendo a exceção e a conexão:** `function (\Throwable $e, DatabaseDriverInterface $connection): mixed { ... }`
+
+### 9.3. Função Global `transaction()` em Conexões Nomeadas (`$connectionIdentifier`)
+Para executar uma transação em outra conexão registrada em `Config` (como `'audit'` ou `'erp'`), informe o 3º parâmetro:
+
+```php
+transaction(
+    transaction: function () use ($erpModel): void {
+        $erpModel->insert(['code' => 'ORD-100', 'total' => 250.00]);
+    },
+    rollback: function (\Throwable $e): void {
+        error_log('Falha no banco ERP: ' . $e->getMessage());
+    },
+    connectionIdentifier: 'erp'
+);
+```
+
+Você também pode chamar via namespace `\Lumynus\Lumy\transaction($transaction, $rollback, $connectionIdentifier)` ou via `LumyConnection::runTransaction($transaction, $rollback, $connectionIdentifier)`.
+
+### 9.4. Uso Direto na Model (`$model->transaction()`)
+O método `$model->transaction(callable $callback, ?callable $rollback = null)` funciona da mesma forma na conexão configurada na Model (passando a própria `$model` para os callbacks):
+```php
+$walletModel->transaction(
+    function (WalletModel $model) use ($fromId, $toId): void {
+        $model->update(['balance' => 700], ['id' => $fromId]);
+        $model->update(['balance' => 550], ['id' => $toId]);
+    },
+    function (\Throwable $e, WalletModel $model): void {
+        // Lógica opcional de rollback customizado
+    }
+);
+```
+
+### 9.5. Controle Manual (`beginTransaction`, `commit`, `rollBack`)
 ```php
 try {
     $walletModel->beginTransaction();
@@ -454,29 +529,28 @@ try {
 }
 ```
 
-### Transações Aninhadas (Savepoints)
-Transações aninhadas usam savepoints nos drivers que os suportam. Se o bloco
-interno falhar, apenas ele é revertido e o bloco externo pode continuar:
+### 9.6. Transações Aninhadas (Savepoints)
+Transações aninhadas usam savepoints automaticamente em todos os drivers. Se o bloco
+interno falhar, apenas o savepoint interno é revertido e o bloco externo pode continuar:
 
 ```php
-$walletModel->transaction(function (WalletModel $model): void {
-    $model->insert([...]);
+transaction(function () use ($walletModel): void {
+    $walletModel->insert(['owner' => 'Alice', 'balance' => 1000]);
 
-    try {
-        $model->transaction(function (WalletModel $inner): void {
-            $inner->insert([...]); // savepoint
+    transaction(
+        transaction: function () use ($walletModel): void {
+            $walletModel->insert(['owner' => 'Temp', 'balance' => 50]); // savepoint
             throw new RuntimeException('reverte apenas o savepoint');
-        });
-    } catch (RuntimeException) {
-        // o insert externo continua válido
-    }
+        },
+        rollback: function (\Throwable $e): void {
+            // Tratado no savepoint sem abortar a transação externa
+        }
+    );
 });
 ```
 
-- PDO (MySQL, PostgreSQL, SQLite): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
+- PDO / MySQLi / Firebird (SQLite, MySQL, MariaDB, PostgreSQL, Firebird/InterBase): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
 - SQL Server: `SAVE TRANSACTION` / `ROLLBACK TRANSACTION`.
-- Ibase nativo: não suporta aninhamento; o segundo `beginTransaction()` lança
-  `RuntimeException`.
 
 Se a conexão cair fora de uma transação, os drivers PDO e MySQLi tentam reabrir
 a conexão e repetir a operação uma única vez. Dentro de uma transação a
@@ -574,6 +648,8 @@ php tests/example1.php
 ```
 
 Consulte também a documentação detalhada em:
+- [Guia dos Bancos de Dados Suportados (`docs/Databases.md`)](docs/Databases.md)
+- [Guia Completo de Transações (`docs/Transactions.md`)](docs/Transactions.md)
 - [Documentação de Models (`docs/Model.md`)](docs/Model.md)
 - [Documentação de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
 

@@ -140,3 +140,5 @@ final class Config
         self::$configurations = [];
     }
 }
+
+require_once __DIR__ . '/functions.php';

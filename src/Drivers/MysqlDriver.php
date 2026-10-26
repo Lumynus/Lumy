@@ -312,7 +312,7 @@ final class MysqlDriver implements DatabaseDriverInterface
     public function rollBack(): void
     {
         if ($this->transactionDepth === 0) {
-            throw new \RuntimeException('There is no active transaction to roll back.');
+            return;
         }
 
         if ($this->transactionDepth === 1) {

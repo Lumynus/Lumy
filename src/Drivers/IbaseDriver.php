@@ -19,8 +19,8 @@ final class IbaseDriver implements DatabaseDriverInterface
     /** Active native transaction handle, when a transaction has started. */
     private $transaction = null;
 
-    /** Whether a native transaction is currently active. */
-    private bool $transactionActive = false;
+    /** Current transaction nesting depth; 0 means no active transaction. */
+    private int $transactionDepth = 0;
 
     /**
      * Opens a Firebird/InterBase connection.
@@ -43,13 +43,30 @@ final class IbaseDriver implements DatabaseDriverInterface
             );
         }
 
-        $target = trim($host) !== '' ? "{$host}:{$database}" : $database;
+        [$hostname, $port] = self::splitHostPort($host);
+        $firebirdHost = $port !== null ? "{$hostname}/{$port}" : $hostname;
+        $target = $firebirdHost !== '' ? "{$firebirdHost}:{$database}" : $database;
+
         $this->connection = \ibase_connect($target, $user, (string) ($password ?? ''));
         if ($this->connection === false) {
             throw new \RuntimeException(
                 (string) \ibase_errmsg() ?: 'Unable to connect to Firebird/InterBase database.'
             );
         }
+    }
+
+    /** @return array{string, int|null} */
+    private static function splitHostPort(string $host): array
+    {
+        $host = trim($host);
+        if (preg_match('/\A\[([^\]]+)\]:(\d+)\z/', $host, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+        if (substr_count($host, ':') === 1 && preg_match('/\A([^:]+):(\d+)\z/', $host, $matches)) {
+            return [$matches[1], (int) $matches[2]];
+        }
+
+        return [$host, null];
     }
 
     /**
@@ -138,51 +155,68 @@ final class IbaseDriver implements DatabaseDriverInterface
         return [array_values($columns), array_values($uniqueBy)];
     }
 
-    /** Starts an Ibase transaction for subsequent queries. */
+    /** Starts an Ibase transaction or savepoint for subsequent queries. */
     public function beginTransaction(): void
     {
-        if ($this->transactionActive) {
-            throw new \RuntimeException(
-                'Nested transactions are not supported by the Ibase driver; commit or roll back the active transaction first.'
-            );
+        if ($this->transactionDepth === 0) {
+            $transaction = \ibase_trans($this->connection);
+            if ($transaction === false) {
+                throw new \RuntimeException((string) \ibase_errmsg());
+            }
+            $this->transaction = $transaction;
+            $this->transactionDepth = 1;
+
+            return;
         }
 
-        $transaction = \ibase_trans($this->connection);
-        if ($transaction === false) {
-            throw new \RuntimeException((string) \ibase_errmsg());
-        }
-        $this->transaction = $transaction;
-        $this->transactionActive = true;
+        \ibase_query($this->transaction, 'SAVEPOINT lumy_sp_' . $this->transactionDepth);
+        $this->transactionDepth++;
     }
 
-    /** Commits the active Ibase transaction and clears its handle. */
+    /** Commits the active Ibase transaction or releases the innermost savepoint. */
     public function commit(): void
     {
-        if ($this->transaction === null) {
+        if ($this->transactionDepth === 0 || $this->transaction === null) {
             throw new \RuntimeException('There is no active transaction to commit.');
         }
 
-        $committed = \ibase_commit($this->transaction);
-        $this->transaction = null;
-        $this->transactionActive = false;
-        if ($committed === false) {
-            throw new \RuntimeException((string) \ibase_errmsg());
+        if ($this->transactionDepth === 1) {
+            $committed = \ibase_commit($this->transaction);
+            $this->transaction = null;
+            $this->transactionDepth = 0;
+            if ($committed === false) {
+                throw new \RuntimeException((string) \ibase_errmsg());
+            }
+
+            return;
         }
+
+        $this->transactionDepth--;
+        \ibase_query($this->transaction, 'RELEASE SAVEPOINT lumy_sp_' . $this->transactionDepth);
     }
 
-    /** Rolls back the active Ibase transaction and clears its handle. */
+    /** Rolls back the active Ibase transaction or to the innermost savepoint. */
     public function rollBack(): void
     {
-        if ($this->transaction === null) {
-            throw new \RuntimeException('There is no active transaction to roll back.');
+        if ($this->transactionDepth === 0 || $this->transaction === null) {
+            return;
         }
 
-        $rolledBack = \ibase_rollback($this->transaction);
-        $this->transaction = null;
-        $this->transactionActive = false;
-        if ($rolledBack === false) {
-            throw new \RuntimeException((string) \ibase_errmsg());
+        if ($this->transactionDepth === 1) {
+            $rolledBack = \ibase_rollback($this->transaction);
+            $this->transaction = null;
+            $this->transactionDepth = 0;
+            if ($rolledBack === false) {
+                throw new \RuntimeException((string) \ibase_errmsg());
+            }
+
+            return;
         }
+
+        $this->transactionDepth--;
+        $name = 'lumy_sp_' . $this->transactionDepth;
+        \ibase_query($this->transaction, 'ROLLBACK TO SAVEPOINT ' . $name);
+        \ibase_query($this->transaction, 'RELEASE SAVEPOINT ' . $name);
     }
 
     /**

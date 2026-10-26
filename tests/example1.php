@@ -7,13 +7,16 @@ require_once dirname(__DIR__) . '/vendor/autoload.php';
 use Lumynus\Lumy\AbstractModel;
 use Lumynus\Lumy\Config;
 use Lumynus\Lumy\Connections\LumyConnection;
+use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
+use Lumynus\Lumy\Drivers\PdoDriver;
 use Lumynus\Lumy\Migrations;
 use Lumynus\Lumy\Model;
 
 /**
  * Suite de testes automatizados do Lumy MicroORM.
- * Executa em SQLite (:memory:) validando CRUD, filtros, relacionamentos,
- * transações, migrations, pool de conexões e proteções de segurança.
+ * Executa em SQLite (:memory:) e verifica todos os 5 dialetos de bancos suportados
+ * (SQLite, MySQL/MariaDB, PostgreSQL, SQL Server e Firebird/InterBase),
+ * alem da funcao global transaction($transaction, $rollback).
  */
 function assertSameValue(mixed $expected, mixed $actual, string $message): void
 {
@@ -209,20 +212,50 @@ assertSameValue(1, count($notLikeRows), 'Filtro !LIKE deve encontrar Bruno');
 $nullRows = $authors->select(filters: ['emailAddress' => null], camelCaseTransform: true);
 assertSameValue($brunoId, $nullRows[0]['id'], 'Filtro IS NULL deve encontrar Bruno');
 
-// 4. Transações (commit e rollback)
+// 4. Transações via método e via função global transaction($transaction, $rollback)
 assertThrows(RuntimeException::class, function () use ($authors): void {
-    $authors->transaction(function (AuthorModel $model): void {
-        $model->insert([
-            'full_name' => 'Usuario Rollback',
-            'email_address' => 'rollback@lumy.dev',
+    transaction(function () use ($authors): void {
+        $authors->insert([
+            'full_name' => 'Usuario Rollback Padrao',
+            'email_address' => 'rollback_default@lumy.dev',
             'status_code' => 'temp',
         ]);
-        throw new RuntimeException('Simulando falha na transacao');
+        throw new RuntimeException('Simulando falha sem callback de rollback');
     });
-}, 'Transacao com erro deve propagar excecao');
+}, 'transaction() sem callback de rollback deve fazer rollback automatico e relancar a excecao');
 
-$afterRollback = (new Model('authors'))->get(['email_address' => 'rollback@lumy.dev']);
-assertSameValue(null, $afterRollback, 'Rollback deve desfazer o insert');
+$afterDefaultRollback = (new Model('authors'))->get(['email_address' => 'rollback_default@lumy.dev']);
+assertSameValue(null, $afterDefaultRollback, 'Rollback padrao deve desfazer o insert');
+
+// Testando funcao global transaction() COM callback de rollback definido pelo usuario
+$customRollbackExecuted = false;
+$customReturn = transaction(
+    function () use ($authors): string {
+        $authors->insert([
+            'full_name' => 'Usuario Rollback Customizado',
+            'email_address' => 'rollback_custom@lumy.dev',
+            'status_code' => 'temp',
+        ]);
+        throw new InvalidArgumentException('Erro capturado pelo rollback do usuario');
+    },
+    function (Throwable $e) use (&$customRollbackExecuted, $authors): string {
+        $customRollbackExecuted = true;
+        // O usuario tambem pode gravar log ou executar acoes compensatorias no banco!
+        $authors->insert([
+            'full_name' => 'Log de Falha',
+            'email_address' => 'audit_failure@lumy.dev',
+            'status_code' => 'audit',
+        ]);
+
+        return 'tratado:' . $e->getMessage();
+    }
+);
+
+assertSameValue(true, $customRollbackExecuted, 'Callback de rollback customizado deve ser executado');
+assertSameValue('tratado:Erro capturado pelo rollback do usuario', $customReturn, 'transaction() deve retornar o valor do callback de rollback');
+assertSameValue(null, (new Model('authors'))->get(['email_address' => 'rollback_custom@lumy.dev']), 'Insert da transacao falha deve ter sofrido rollback');
+assertSameValue('Log de Falha', (new Model('authors'))->get(['email_address' => 'audit_failure@lumy.dev'])['full_name'] ?? null, 'Query executada dentro do callback de rollback deve persistir');
+$authors->delete(['email_address' => 'audit_failure@lumy.dev']);
 
 // 5. Segurança: bloqueio de SQL Injection em identificadores e bypass de mapa
 assertThrows(InvalidArgumentException::class, function () use ($authors): void {
@@ -263,26 +296,27 @@ assertThrows(InvalidArgumentException::class, function () use ($authors): void {
 
 // 9. Transacoes aninhadas via savepoint
 $nestedOuter = null;
-$authors->transaction(function (AuthorModel $model) use (&$nestedOuter): void {
-    $model->insert([
+transaction(function () use ($authors, &$nestedOuter): void {
+    $authors->insert([
         'full_name' => 'Outer Commit',
         'email_address' => 'outer@lumy.dev',
         'status_code' => 'active',
     ]);
-    try {
-        $model->transaction(function (AuthorModel $inner): void {
-            $inner->insert([
+    transaction(
+        function () use ($authors): void {
+            $authors->insert([
                 'full_name' => 'Inner Rollback',
                 'email_address' => 'inner@lumy.dev',
                 'status_code' => 'temp',
             ]);
             throw new RuntimeException('Reverte apenas o savepoint interno');
-        });
-    } catch (RuntimeException) {
-    }
-    $nestedOuter = 'reached';
+        },
+        function (Throwable $e) use (&$nestedOuter): void {
+            $nestedOuter = 'inner_handled:' . $e->getMessage();
+        }
+    );
 });
-assertSameValue('reached', $nestedOuter, 'Erro no savepoint interno nao pode abortar a transacao externa');
+assertSameValue('inner_handled:Reverte apenas o savepoint interno', $nestedOuter, 'Erro no savepoint interno deve ser tratado pelo rollback interno sem abortar a transacao externa');
 
 $outerRow = (new Model('authors'))->get(['email_address' => 'outer@lumy.dev']);
 $innerRow = (new Model('authors'))->get(['email_address' => 'inner@lumy.dev']);
@@ -322,4 +356,109 @@ assertSameValue(0, (int) $userCount[0]['total'], 'Tabela criada pela migration d
 array_map('unlink', glob($migrationsDir . DIRECTORY_SEPARATOR . '*.sql') ?: []);
 @rmdir($migrationsDir);
 
-echo "Todos os testes do Lumy executados com sucesso!" . PHP_EOL;
+// 12. Verificacao dos 5 dialetos de bancos suportados (SQLite, MySQL, PostgreSQL, SQL Server, Firebird)
+$buildDsnMethod = new ReflectionMethod(PdoDriver::class, 'buildDsn');
+
+assertSameValue(
+    'sqlite::memory:',
+    $buildDsnMethod->invoke(null, 'sqlite', '', ':memory:', []),
+    'DSN SQLite deve ser gerado corretamente'
+);
+assertSameValue(
+    'mysql:host=127.0.0.1;port=3307;dbname=app_db;charset=utf8mb4',
+    $buildDsnMethod->invoke(null, 'mysql', '127.0.0.1:3307', 'app_db', []),
+    'DSN MySQL com porta deve ser gerado corretamente'
+);
+assertSameValue(
+    'pgsql:host=db.internal;port=5433;dbname=analytics;sslmode=require',
+    $buildDsnMethod->invoke(null, 'postgresql', 'db.internal:5433', 'analytics', ['sslmode' => 'require']),
+    'DSN PostgreSQL com porta e sslmode deve ser gerado corretamente'
+);
+assertSameValue(
+    'sqlsrv:Server=10.0.0.5,1433;Database=erp_db',
+    $buildDsnMethod->invoke(null, 'sqlserver', '10.0.0.5:1433', 'erp_db', []),
+    'DSN SQL Server com porta deve converter ":" para ","'
+);
+assertSameValue(
+    'firebird:dbname=127.0.0.1/3050:/var/firebird/app.fdb;charset=UTF8',
+    $buildDsnMethod->invoke(null, 'firebird', '127.0.0.1:3050', '/var/firebird/app.fdb', []),
+    'DSN Firebird com host:porta deve converter para host/porta:database'
+);
+
+// Verifica geracao de SQL de paginacao e LIKE ESCAPE em cada dialeto (mysql, pgsql, sqlsrv, firebird, sqlite)
+class DialectRecorderDriver implements DatabaseDriverInterface
+{
+    public string $lastQuery = '';
+    /** @var list<mixed> */
+    public array $lastParams = [];
+
+    public function __construct(private string $driverName)
+    {
+    }
+
+    public function query(string $query, array $params = [], string|array $types = ''): array|bool
+    {
+        $this->lastQuery = $query;
+        $this->lastParams = $params;
+
+        return [];
+    }
+
+    public function upsert(string $table, array $data, array $uniqueBy): bool
+    {
+        return true;
+    }
+
+    public function getDriverName(): string
+    {
+        return $this->driverName;
+    }
+
+    public function beginTransaction(): void {}
+    public function commit(): void {}
+    public function rollBack(): void {}
+    public function getInsertId(): int { return 1; }
+    public function getAffectedRows(): int { return 1; }
+    public function getThreadId(): ?int { return 1; }
+}
+
+function inspectDialectQuery(string $driverName, callable $action): array
+{
+    $recorder = new DialectRecorderDriver($driverName);
+    $model = new Model('items');
+    $prop = new ReflectionProperty( Lumynus\Lumy\AbstractLumy::class, 'modelConnection');
+    $prop->setValue($model, $recorder);
+    $action($model);
+
+    return [$recorder->lastQuery, $recorder->lastParams];
+}
+
+[$sqlSrvQuery] = inspectDialectQuery('sqlsrv', static fn (Model $m) => $m->select(offset: 20, limit: 10));
+assertSameValue(
+    'SELECT * FROM items ORDER BY (SELECT NULL) OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY',
+    $sqlSrvQuery,
+    'SQL Server deve paginar com OFFSET ... ROWS FETCH NEXT ... ROWS ONLY'
+);
+
+[$firebirdQuery] = inspectDialectQuery('firebird', static fn (Model $m) => $m->select(offset: 10, limit: 5));
+assertSameValue(
+    'SELECT * FROM items ORDER BY 1 ROWS 11 TO 15',
+    $firebirdQuery,
+    'Firebird deve paginar com ROWS m TO n'
+);
+
+[$mysqlQuery] = inspectDialectQuery('mysql', static fn (Model $m) => $m->select(filters: ['name LIKE' => '50%'], offset: 0, limit: 5));
+assertSameValue(
+    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\\\' ORDER BY 1 LIMIT 5 OFFSET 0",
+    $mysqlQuery,
+    'MySQL deve usar ESCAPE dobrado e LIMIT/OFFSET'
+);
+
+[$pgsqlQuery] = inspectDialectQuery('pgsql', static fn (Model $m) => $m->select(filters: ['name LIKE' => '50%'], offset: 0, limit: 5));
+assertSameValue(
+    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\' ORDER BY 1 LIMIT 5 OFFSET 0",
+    $pgsqlQuery,
+    'PostgreSQL deve usar ESCAPE simples e LIMIT/OFFSET'
+);
+
+echo "Todos os testes do Lumy (incluindo os 5 dialetos e transaction global) executados com sucesso!" . PHP_EOL;

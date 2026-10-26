@@ -78,9 +78,11 @@ Demonstra como estruturar consultas analíticas e relatórios:
 - Agrupamento com `$groupBy`.
 
 ### 7. Transações (`transactions.php`)
-Demonstra o controle transacional seguro:
-- Execução atômica via `$model->transaction(function ($model) { ... })` com `commit` automático em caso de sucesso e `rollBack` automático se qualquer exceção for lançada;
-- Também aplicável manualmente via `$model->beginTransaction()`, `$model->commit()` e `$model->rollBack()`.
+Demonstra o controle transacional seguro com a função global `transaction(callable $transaction, ?callable $rollback = null, string $connectionIdentifier = 'default')`:
+- **Commit automático**: quando o callback `$transaction` finaliza sem erros;
+- **Rollback padrão automático (`$rollback = null`)**: quando o segundo parâmetro não é informado e uma exceção é lançada, o Lumy executa o `rollBack()` automaticamente e relança a exceção;
+- **Rollback customizado (`$rollback` definido pelo usuário)**: quando o usuário passa uma função de rollback, o Lumy reverte a transação pendente no banco e executa a rotina definida pelo usuário em `$rollback` (retornando seu resultado);
+- Também disponível via `$model->transaction($transaction, $rollback)` ou manualmente com `$model->beginTransaction()`, `$model->commit()` e `$model->rollBack()`.
 
 ### 8. Runner de Migrations SQL (`migrations-usage.php`)
 Demonstra o uso da classe `Migrations` para versionamento de schema:

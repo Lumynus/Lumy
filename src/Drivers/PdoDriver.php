@@ -7,9 +7,9 @@ namespace Lumynus\Lumy\Drivers;
 use Lumynus\Lumy\Contracts\DatabaseDriverInterface;
 
 /**
- * PDO driver for SQLite, PostgreSQL, Microsoft SQL Server, and MySQL databases.
+ * PDO driver for SQLite, PostgreSQL, Microsoft SQL Server, MySQL, and Firebird databases.
  *
- * The matching PDO extension (pdo_sqlite, pdo_pgsql, pdo_sqlsrv, or pdo_mysql)
+ * The matching PDO extension (pdo_sqlite, pdo_pgsql, pdo_sqlsrv, pdo_mysql, or pdo_firebird)
  * must be enabled in the PHP installation.
  */
 final class PdoDriver implements DatabaseDriverInterface
@@ -132,13 +132,14 @@ final class PdoDriver implements DatabaseDriverInterface
         self::assertSafeDsnValue($host, 'host');
         self::assertSafeDsnValue($database, 'database');
 
+        [$hostname, $port] = self::splitHostPort($host);
+
         if ($type === 'firebird') {
-            $target = $host !== '' ? "{$host}:{$database}" : $database;
+            $firebirdHost = $port !== null ? "{$hostname}/{$port}" : $hostname;
+            $target = $firebirdHost !== '' ? "{$firebirdHost}:{$database}" : $database;
 
             return "firebird:dbname={$target};charset=UTF8";
         }
-
-        [$hostname, $port] = self::splitHostPort($host);
 
         return match ($type) {
             'postgresql' => 'pgsql:host=' . $hostname
@@ -465,7 +466,7 @@ final class PdoDriver implements DatabaseDriverInterface
     public function rollBack(): void
     {
         if ($this->transactionDepth === 0) {
-            throw new \RuntimeException('There is no active transaction to roll back.');
+            return;
         }
 
         if ($this->transactionDepth === 1) {
