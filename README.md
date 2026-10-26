@@ -649,92 +649,90 @@ LumyConnection::closeAll();
 
 O Lumy inclui um **Runner de Migrations SQL** nativo (`Lumynus\Lumy\Migrations` e `bin/migrate.php`) que executa arquivos `.sql` pendentes em ordem natural (`001_...`, `002_...`) e registra o histórico na tabela `lumy_migrations`.
 
-### 11.1. Preparando os Arquivos `.sql` e o `bootstrap.php`
+### 11.1. Como o CLI encontra o `Config` se ele pode estar em qualquer parte do projeto?
 
-1. Crie a pasta de migrations (por padrão `database/migrations/`) com arquivos `.sql` numerados:
-   ```text
-   database/
-   └── migrations/
-       ├── 001_create_users.sql
-       └── 002_create_orders.sql
-   ```
+Quando você roda um comando via terminal (`php bin/migrate.php default`), o PHP inicia um processo novo do zero. Como a classe `Config` guarda as conexões na memória desse processo, o CLI precisa carregar o arquivo onde suas conexões (`new Config(...)` ou `Config::setConnection(...)`) foram definidas.
 
-   Cada arquivo `.sql` pode conter múltiplos comandos separados por `;`, além de comentários (`--`, `#`, `/* ... */`):
-   ```sql
-   -- database/migrations/001_create_users.sql
-   CREATE TABLE users (
-       id INTEGER PRIMARY KEY,
-       full_name VARCHAR(150) NOT NULL,
-       email VARCHAR(255) NOT NULL UNIQUE
-   );
+Para que você **não fique preso a uma estrutura única de pastas**, o `bin/migrate.php` localiza suas configurações em **3 etapas automáticas**:
 
-   CREATE INDEX idx_users_email ON users (email);
-   ```
-
-2. Para uso via CLI, tenha um arquivo de bootstrap (por padrão `bootstrap.php` na raiz do projeto) que registre a conexão no `Config`:
-   ```php
-   <?php
-   // bootstrap.php
-   declare(strict_types=1);
-
-   require_once __DIR__ . '/vendor/autoload.php';
-
-   use Lumynus\Lumy\Config;
-
-   Config::setConnection(
-       connectionIdentifier: 'default',
-       driver: 'postgresql',
-       host: '127.0.0.1:5432',
-       user: 'postgres',
-       password: getenv('DB_PASSWORD') ?: 'secret',
-       database: 'minha_aplicacao',
-       migrationsPath: __DIR__ . '/database/migrations' // opcional (padrão já é database/migrations)
-   );
-   ```
+1. **Etapa 1 — Caminho Explícito (2º argumento do CLI):**
+   Se você passar o caminho do seu arquivo de configuração como segundo argumento (ex.: `php bin/migrate.php default app/Core/DatabaseConfig.php`), ele carrega exatamente esse arquivo.
+2. **Etapa 2 — Locais Convencionais na Raiz do Projeto:**
+   Se você omitir o 2º argumento (`php bin/migrate.php default`), o CLI verifica automaticamente os arquivos mais comuns:
+   - `bootstrap.php`, `config.php`
+   - `config/database.php`, `config/lumy.php`, `config/db.php`, `config/config.php`
+   - `app/Config/database.php`, `app/Config/Database.php`, `src/Config/database.php`
+   - `database/config.php`, `bootstrap/database.php`, `bootstrap/app.php`
+3. **Etapa 3 — Auto-Discovery em Qualquer Pasta do Projeto:**
+   Se a sua conexão ainda não tiver sido encontrada nos caminhos acima, o `bin/migrate.php` **vasculha automaticamente as pastas do seu projeto** (ignorando `vendor`, `node_modules`, `tests`, `public/index.php`, etc.), localiza qualquer arquivo `.php` que chame `Config::setConnection(...)` ou `new Config(...)` e o carrega até encontrar o `connectionIdentifier` solicitado!
 
 ---
 
-### 11.2. Todas as Formas de Executar as Migrations
+### 11.2. Preparando os Arquivos `.sql`
+
+Crie a pasta de migrations (por padrão `database/migrations/` na raiz do seu projeto) com arquivos `.sql` numerados:
+```text
+database/
+└── migrations/
+    ├── 001_create_users.sql
+    └── 002_create_orders.sql
+```
+
+Cada arquivo `.sql` pode conter múltiplos comandos separados por `;`, além de comentários (`--`, `#`, `/* ... */`):
+```sql
+-- database/migrations/001_create_users.sql
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+---
+
+### 11.3. Todas as Formas de Executar as Migrations
 
 Você pode rodar suas migrations tanto **via Terminal (CLI)** quanto **via Código PHP (Programático)**:
 
-#### Forma 1: Via CLI Padrão (usando `bootstrap.php` e a pasta configurada)
-Se o seu `bootstrap.php` está na raiz do projeto, basta informar o identificador da conexão (`default`):
+#### Forma 1: Via CLI com Auto-Discovery (sem precisar informar onde está a `Config`)
+Basta passar o nome da conexão (`default`). O Lumy encontrará automaticamente em qual arquivo do seu projeto o `Config` da conexão `default` foi declarado:
 ```bash
-# Quando estiver no próprio repositório do Lumy:
-php bin/migrate.php default
+# Quando instalado via Composer no seu projeto (binário do Composer):
+php vendor/bin/migrate.php default
 
-# Quando instalado via Composer na sua aplicação:
-php vendor/lumynus/lumy/bin/migrate.php default
+# Ou chamando diretamente o script:
+php bin/migrate.php default
 ```
 
-#### Forma 2: Via CLI com Arquivo de Bootstrap Personalizado (2º argumento)
-Se a sua aplicação registra as conexões de banco em outro arquivo (ex.: `config/database.php` ou `bootstrap/app.php`), passe o caminho dele como **2º argumento**:
+#### Forma 2: Via CLI Apontando para o Arquivo onde está sua `Config` (2º argumento)
+Se você quiser apontar manualmente para o arquivo onde suas conexões estão (ou se sua configuração estiver dentro de uma função/closure retornada por um arquivo), passe-o como **2º argumento**:
 ```bash
-php bin/migrate.php default config/database.php
+php vendor/bin/migrate.php default src/Infra/Database/connections.php
 ```
 
 #### Forma 3: Via CLI Sobrescrevendo a Pasta de Migrations (3º argumento)
 Para executar migrations de uma pasta específica (ex.: um módulo isolado, banco de auditoria ou *hotfix*), informe o diretório como **3º argumento**:
 ```bash
-php bin/migrate.php audit config/database.php database/migrations/audit
+php vendor/bin/migrate.php audit config/database.php database/migrations/audit
 ```
 
 > **Sintaxe completa do CLI:**
 > ```bash
-> php bin/migrate.php <connectionIdentifier> [caminho/do/bootstrap.php] [caminho/da/pasta-migrations]
+> php vendor/bin/migrate.php <connectionIdentifier> [caminho/do/config.php] [caminho/da/pasta-migrations]
 > ```
 > **Saída e códigos de retorno (ideal para CI/CD e Docker):**
 > - Imprime `Applied: 001_create_users.sql` para cada arquivo novo ou `No pending migrations.` caso tudo já esteja atualizado;
-> - Código `0`: sucesso; Código `1`: erro ao conectar ou executar SQL; Código `2`: argumentos inválidos ou bootstrap não encontrado.
+> - Código `0`: sucesso; Código `1`: erro ao conectar ou executar SQL; Código `2`: argumentos inválidos ou conexão não encontrada.
 
 #### Forma 4: Via Atalho no `composer.json` (Composer Scripts)
 Adicione scripts no `composer.json` do seu projeto para rodar com um único comando:
 ```json
 {
     "scripts": {
-        "migrate": "php vendor/lumynus/lumy/bin/migrate.php default bootstrap.php",
-        "migrate:audit": "php vendor/lumynus/lumy/bin/migrate.php audit bootstrap.php database/migrations/audit"
+        "migrate": "php vendor/bin/migrate.php default",
+        "migrate:audit": "php vendor/bin/migrate.php audit"
     }
 }
 ```
@@ -745,7 +743,7 @@ composer migrate:audit
 ```
 
 #### Forma 5: Via Código PHP (Usando a Pasta Definida no `Config`)
-Se você definiu `migrationsPath` ao registrar a conexão no `Config`, basta instanciar `Migrations` passando apenas o `connectionIdentifier` e chamar `run()`:
+Quando você roda pela própria aplicação PHP, o `Config` já foi carregado no fluxo normal do seu sistema. Basta instanciar `Migrations` passando o `connectionIdentifier` e chamar `run()`:
 ```php
 use Lumynus\Lumy\Config;
 use Lumynus\Lumy\Migrations;
@@ -762,7 +760,7 @@ $appliedFiles = $runner->run(); // Retorna array com os nomes dos arquivos aplic
 ```
 
 #### Forma 6: Via Código PHP (Informando a Pasta Diretamente no Construtor)
-Ideal para testes automatizados, instaladores web, *multi-tenancy* ou execução dinâmica sem depender do `migrationsPath` do `Config`:
+Ideal para testes automatizados, instaladores web, *multi-tenancy* ou execução dinâmica em qualquer rota/controller:
 ```php
 use Lumynus\Lumy\Migrations;
 
@@ -778,12 +776,12 @@ $appliedFiles = $runner->run();
 
 ---
 
-### 11.3. Ordem de Prioridade da Pasta e Recursos de Segurança das Migrations
+### 11.4. Ordem de Prioridade da Pasta e Recursos de Segurança das Migrations
 
 O Lumy resolve qual pasta de migrations usar nesta ordem:
 1. O diretório passado explicitamente em `new Migrations($id, $migrationsDirectory)` (ou 3º argumento do CLI);
 2. O `migrationsPath` configurado em `Config::setConnection(...)` para aquela conexão;
-3. A pasta padrão `database/migrations/`.
+3. A pasta padrão `database/migrations/` na raiz do projeto atual.
 
 **Segurança e Concorrência no Runner:**
 - **Idempotência Garantida:** Cria e consulta automaticamente a tabela `lumy_migrations` no dialeto do banco conectado;

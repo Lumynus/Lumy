@@ -22,15 +22,20 @@ final class Migrations extends AbstractLumy
         ?string $migrationsDirectory = null
     ) {
         $configuration = Config::getConnection($connectionIdentifier);
+        $cwdMigrations = (getcwd() ?: '') . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'migrations';
+        $defaultDirectory = is_dir($cwdMigrations)
+            ? $cwdMigrations
+            : dirname(__DIR__) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'migrations';
+
         $this->migrationsDirectory = $migrationsDirectory
             ?? $configuration['migrationsPath']
-            ?? dirname(__DIR__) . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'migrations';
+            ?? $defaultDirectory;
 
         parent::__construct($connectionIdentifier);
     }
 
     /**
-    * Runs pending .sql files in natural filename order.
+     * Runs pending .sql files in natural filename order.
      *
      * A migration is recorded only after all its statements succeed.
      * On MySQL, PostgreSQL and SQL Server a server-wide advisory lock is held

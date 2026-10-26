@@ -3,21 +3,41 @@
 `Lumynus\Lumy\Migrations` executa arquivos `.sql` pendentes em ordem natural
 de nome. Cada arquivo pode conter um ou mais statements SQL separados por `;`.
 
-O runner é CLI, não é executado automaticamente ao carregar a biblioteca. Ele
-usa a conexão cadastrada em `Config` para o identificador informado no comando.
+O runner pode ser executado tanto via CLI (`bin/migrate.php` ou `vendor/bin/migrate.php`)
+quanto programaticamente via código PHP (`new Migrations(...)`). Ele usa a conexão
+cadastrada em `Config` para o identificador informado.
 
-## Configuração para CLI
+## Como o CLI encontra o `Config` em qualquer parte do projeto
 
-A configuração de `Config` existe somente na memória do processo PHP atual.
-Assim, cada execução do comando precisa carregar um bootstrap que registre a
-conexão. O bootstrap padrão é `bootstrap.php` na raiz do projeto. Exemplo:
+A configuração de `Config` existe na memória do processo PHP atual. Quando você
+executa o comando no terminal, o `bin/migrate.php` localiza e carrega o arquivo
+onde suas conexões (`new Config(...)` ou `Config::setConnection(...)`) estão
+definidas por meio de **3 etapas automáticas**:
+
+1. **Caminho explícito (2º argumento do CLI):**
+   Se você informar o caminho do arquivo de configuração no segundo argumento
+   (por exemplo, `php vendor/bin/migrate.php default app/Core/Database.php`),
+   esse arquivo é carregado diretamente.
+2. **Locais convencionais na raiz do projeto:**
+   Se o segundo argumento não for informado (`php vendor/bin/migrate.php default`),
+   o CLI procura automaticamente nos caminhos mais comuns:
+   - `bootstrap.php`, `config.php`
+   - `config/database.php`, `config/lumy.php`, `config/db.php`, `config/config.php`
+   - `app/Config/database.php`, `app/Config/Database.php`, `src/Config/database.php`
+   - `database/config.php`, `bootstrap/database.php`, `bootstrap/app.php`
+3. **Auto-Discovery em qualquer pasta do projeto:**
+   Se a conexão ainda não tiver sido registrada após a etapa anterior, o CLI
+   vasculha automaticamente os arquivos `.php` do seu projeto (ignorando pastas
+   como `vendor`, `node_modules`, `tests`, `examples`, `bin` e `public/index.php`)
+   em busca de chamadas a `Config::setConnection(...)` ou `new Config(...)`,
+   carregando-os até localizar o `connectionIdentifier` solicitado.
+
+Exemplo de arquivo de configuração (em qualquer pasta do projeto):
 
 ```php
 <?php
 
 declare(strict_types=1);
-
-require_once __DIR__ . '/vendor/autoload.php';
 
 use Lumynus\Lumy\Config;
 
@@ -31,10 +51,6 @@ new Config(
     migrationsPath: __DIR__ . '/database/migrations'
 );
 ```
-
-No exemplo, a conexão é registrada como `default`, que será o primeiro
-argumento do comando. O bootstrap deve apenas preparar a aplicação e registrar
-as configurações necessárias; não deve executar as migrations por conta própria.
 
 `migrationsPath` é opcional e define a pasta de migrations daquela conexão.
 Você pode apontar várias conexões para pastas diferentes:
@@ -51,9 +67,8 @@ Config::setConnection(
 );
 ```
 
-Se a aplicação já tiver um bootstrap CLI que registra a conexão, use esse
-arquivo em vez de criar outro. Não grave senhas reais no repositório; use
-variáveis de ambiente ou o mecanismo de configuração da aplicação.
+Não grave senhas reais no repositório; use variáveis de ambiente ou o mecanismo
+de configuração da aplicação.
 
 ## Executar
 
@@ -80,32 +95,34 @@ CREATE TABLE users (
 Execute da raiz do projeto:
 
 ```bash
+# Via binário do Composer (quando lumynus/lumy está instalado no projeto):
+php vendor/bin/migrate.php default
+
+# Ou diretamente no repositório da biblioteca:
 php bin/migrate.php default
 ```
 
-Sem override no comando, o caminho é escolhido nesta ordem: terceiro argumento
-do CLI, `migrationsPath` da conexão e, por fim, `database/migrations/` relativo
-à raiz da biblioteca. A sintaxe completa é:
+Sem override no comando, o caminho da pasta de migrations é escolhido nesta ordem:
+1. Terceiro argumento do CLI (`[migrations-directory]`);
+2. `migrationsPath` configurado na conexão em `Config`;
+3. `database/migrations/` relativo à raiz do projeto atual.
+
+A sintaxe completa é:
 
 ```bash
-php bin/migrate.php <connectionIdentifier> [bootstrap.php] [migrations-directory]
+php vendor/bin/migrate.php <connectionIdentifier> [config-or-bootstrap.php] [migrations-directory]
 ```
 
 Por exemplo, no Bash ou PowerShell:
 
 ```bash
-php bin/migrate.php billing config/console.php
+php vendor/bin/migrate.php billing config/console.php
 ```
-
-O segundo e terceiro argumentos substituem, respectivamente, o bootstrap e a
-pasta de migrations. Caminhos relativos são resolvidos a partir do diretório
-atual do terminal; caminhos absolutos também podem ser usados. O bootstrap deve
-registrar exatamente o `connectionIdentifier` passado como primeiro argumento.
 
 Para sobrepor a pasta configurada, informe o terceiro argumento:
 
 ```bash
-php bin/migrate.php billing config/console.php database/migrations/billing-hotfix
+php vendor/bin/migrate.php billing config/console.php database/migrations/billing-hotfix
 ```
 
 O comando imprime `Applied: <arquivo>` para cada arquivo novo e
@@ -115,7 +132,7 @@ O comando imprime `Applied: <arquivo>` para cada arquivo novo e
 
 - `0`: todas as migrations pendentes foram aplicadas ou não havia nenhuma.
 - `1`: erro ao conectar, ler ou executar uma migration.
-- `2`: uso incorreto, identificador ausente ou bootstrap não encontrado.
+- `2`: uso incorreto, identificador ausente ou configuração não encontrada.
 
 ## Histórico e reexecução
 
@@ -178,19 +195,3 @@ específica do banco ou uma migration PHP executada por outro mecanismo.
 Use SQL compatível com o driver configurado. DDL, tipos, índices, sequências e
 identidades variam entre bancos; o runner não converte SQL de um dialeto para
 outro.
-
-## Erros comuns
-
-- **`Configuration '<nome>' is not defined`:** confira se o bootstrap registra
-    o mesmo identificador passado no terminal.
-- **Bootstrap não encontrado:** execute da raiz ou passe seu caminho como
-    segundo argumento.
-- **Migration não localizada:** confirme a pasta do terceiro argumento, a
-    extensão minúscula `.sql` e se os arquivos estão diretamente nela.
-- **Erro SQL:** confira o dialeto do banco e o conteúdo do arquivo. Em MySQL,
-    verifique se parte dos statements foi aplicada antes da falha.
-- **Sem permissão:** o usuário do banco precisa criar a tabela `lumy_migrations`
-    e executar o DDL/DML dos arquivos.
-
-Os arquivos `.sql` são código confiável executado diretamente no banco. Não
-gere migrations concatenando dados recebidos de usuários.

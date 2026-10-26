@@ -2,6 +2,9 @@
     "name": "lumynus/lumy",
     "description": "MicroORM from Lumynus",
     "type": "library",
+    "bin": [
+        "bin/migrate.php"
+    ],
     "autoload": {
         "psr-4": {
             "Lumynus\\Lumy\\": "src/"
