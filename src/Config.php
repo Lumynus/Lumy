@@ -20,8 +20,9 @@ final class Config
      *     user: string,
      *     password: mixed,
      *     database: string,
-    *     newConnection: bool,
-    *     migrationsPath: string|null
+     *     newConnection: bool,
+     *     migrationsPath: string|null,
+     *     options: array
      * }>
      */
     private static array $configurations = [];
@@ -36,7 +37,10 @@ final class Config
      * @param string $database Database name or SQLite file path.
      * @param bool $newConnection Whether to bypass connection-pool reuse.
      * @param string $connectionIdentifier Identifier models use to select this configuration.
-    * @param string|null $migrationsPath Directory containing this connection's SQL migrations.
+     * @param string|null $migrationsPath Directory containing this connection's SQL migrations.
+     * @param array $options Extra driver options: PDO attribute constants (PDO::ATTR_*)
+     *        for PdoDriver, and an "ssl" array (key, cert, ca, capath, cipher) for
+     *        MysqlDriver. PostgreSQL also accepts the string key "sslmode".
      */
     public function __construct(
         string $driver = 'mysql',
@@ -47,7 +51,8 @@ final class Config
         string $database = 'lumy',
         bool $newConnection = false,
         string $connectionIdentifier = 'default',
-        ?string $migrationsPath = null
+        ?string $migrationsPath = null,
+        array $options = []
     ) {
         self::setConnection(
             $connectionIdentifier,
@@ -57,7 +62,8 @@ final class Config
             $password,
             $database,
             $newConnection,
-            $migrationsPath
+            $migrationsPath,
+            $options
         );
     }
 
@@ -71,7 +77,8 @@ final class Config
      * @param mixed $password Database password.
      * @param string $database Database name or SQLite file path.
      * @param bool $newConnection Whether to bypass connection-pool reuse.
-    * @param string|null $migrationsPath Directory containing this connection's SQL migrations.
+     * @param string|null $migrationsPath Directory containing this connection's SQL migrations.
+     * @param array $options Extra driver options; see the constructor for the accepted shapes.
      */
     public static function setConnection(
         string $connectionIdentifier,
@@ -82,7 +89,8 @@ final class Config
         mixed $password = '',
         string $database = 'lumy',
         bool $newConnection = false,
-        ?string $migrationsPath = null
+        ?string $migrationsPath = null,
+        array $options = []
     ): void {
         self::$configurations[$connectionIdentifier] = [
             'driver' => $driver,
@@ -92,6 +100,7 @@ final class Config
             'database' => $database,
             'newConnection' => $newConnection,
             'migrationsPath' => $migrationsPath,
+            'options' => $options,
         ];
     }
 
@@ -100,7 +109,7 @@ final class Config
      *
      * @param string $connectionIdentifier Configuration name; defaults to "default".
      *
-    * @return array{driver: string, host: string, user: string, password: mixed, database: string, newConnection: bool, migrationsPath: string|null}
+     * @return array{driver: string, host: string, user: string, password: mixed, database: string, newConnection: bool, migrationsPath: string|null, options: array}
      *
      * @throws \InvalidArgumentException If the identifier has not been configured.
      */

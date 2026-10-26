@@ -11,6 +11,12 @@ final class Migrations extends AbstractLumy
 {
     private string $migrationsDirectory;
 
+    /** Whether a server-side migration lock is currently held. */
+    private bool $lockHeld = false;
+
+    /** Seconds spent waiting for the advisory lock before failing. */
+    private const LOCK_TIMEOUT_SECONDS = 60;
+
     public function __construct(
         string $connectionIdentifier = 'default',
         ?string $migrationsDirectory = null
@@ -27,6 +33,10 @@ final class Migrations extends AbstractLumy
     * Runs pending .sql files in natural filename order.
      *
      * A migration is recorded only after all its statements succeed.
+     * On MySQL, PostgreSQL and SQL Server a server-wide advisory lock is held
+     * for the whole run so concurrent workers cannot apply the same files.
+     * SQLite and Firebird have no advisory-lock facility; the per-file
+     * transaction and the primary-key history table cover those dialects.
      *
      * @return list<string> Names of the migration files executed by this call.
      */
@@ -38,6 +48,17 @@ final class Migrations extends AbstractLumy
             );
         }
 
+        $this->acquireLock();
+        try {
+            return $this->runLocked();
+        } finally {
+            $this->releaseLock();
+        }
+    }
+
+    /** @return list<string> */
+    private function runLocked(): array
+    {
         $files = glob(rtrim($this->migrationsDirectory, '\\/') . DIRECTORY_SEPARATOR . '*.sql') ?: [];
         sort($files, SORT_NATURAL | SORT_FLAG_CASE);
 
@@ -279,5 +300,116 @@ final class Migrations extends AbstractLumy
         if (trim($withoutComments ?? $statement) !== '') {
             $statements[] = $statement;
         }
+    }
+
+    /**
+     * Acquires a cross-process advisory lock for this migrations directory,
+     * waiting up to LOCK_TIMEOUT_SECONDS. No-op on SQLite and Firebird.
+     *
+     * @throws \RuntimeException If the lock cannot be acquired in time.
+     */
+    private function acquireLock(): void
+    {
+        $driver = $this->getConnection()->getDriverName();
+        $name = $this->lockName();
+
+        switch ($driver) {
+            case 'mysql':
+                $rows = $this->customQuery('SELECT GET_LOCK(?, ?) AS acquired', [
+                    $name,
+                    self::LOCK_TIMEOUT_SECONDS,
+                ]);
+                $acquired = is_array($rows) ? (int) ($rows[0]['acquired'] ?? 0) : 0;
+                if ($acquired !== 1) {
+                    throw new \RuntimeException(
+                        "Could not acquire migration lock '{$name}' within "
+                        . self::LOCK_TIMEOUT_SECONDS . ' seconds.'
+                    );
+                }
+                $this->lockHeld = true;
+                return;
+
+            case 'pgsql':
+                for ($attempt = 0; $attempt < self::LOCK_TIMEOUT_SECONDS; $attempt++) {
+                    $rows = $this->customQuery(
+                        'SELECT pg_try_advisory_lock(hashtext(?)) AS acquired',
+                        [$name]
+                    );
+                    $acquired = is_array($rows) && (bool) ($rows[0]['acquired'] ?? false);
+                    if ($acquired) {
+                        $this->lockHeld = true;
+                        return;
+                    }
+                    sleep(1);
+                }
+                throw new \RuntimeException(
+                    "Could not acquire migration lock '{$name}' within "
+                    . self::LOCK_TIMEOUT_SECONDS . ' seconds.'
+                );
+
+            case 'sqlsrv':
+                $rows = $this->customQuery(
+                    'DECLARE @r INT; '
+                    . "EXEC @r = sp_getapplock @Resource = ?, @LockMode = 'Exclusive', "
+                    . "@LockOwner = 'Session', @LockTimeout = ?; "
+                    . 'SELECT acquired = @r',
+                    [$name, self::LOCK_TIMEOUT_SECONDS * 1000]
+                );
+                $acquired = is_array($rows) ? (int) ($rows[0]['acquired'] ?? -1) : -1;
+                if ($acquired < 0) {
+                    throw new \RuntimeException(
+                        "Could not acquire migration lock '{$name}' within "
+                        . self::LOCK_TIMEOUT_SECONDS . ' seconds.'
+                    );
+                }
+                $this->lockHeld = true;
+                return;
+
+            default:
+                // SQLite serializes writers and Firebird has no advisory-lock
+                // facility; the history-table primary key guards both.
+                return;
+        }
+    }
+
+    /** Releases the advisory lock previously acquired; silent when none is held. */
+    private function releaseLock(): void
+    {
+        if (!$this->lockHeld) {
+            return;
+        }
+        $this->lockHeld = false;
+
+        $driver = $this->getConnection()->getDriverName();
+        $name = $this->lockName();
+
+        try {
+            switch ($driver) {
+                case 'mysql':
+                    $this->customQuery('SELECT RELEASE_LOCK(?)', [$name]);
+                    return;
+                case 'pgsql':
+                    $this->customQuery('SELECT pg_advisory_unlock(hashtext(?))', [$name]);
+                    return;
+                case 'sqlsrv':
+                    $this->customQuery(
+                        "EXEC sp_releaseapplock @Resource = ?, @LockOwner = 'Session'",
+                        [$name]
+                    );
+                    return;
+            }
+        } catch (Throwable) {
+            // The session owning the lock may already be closed; the server
+            // releases session locks on disconnect.
+        }
+    }
+
+    /**
+     * Deterministic server-wide lock name, unique per migrations directory so
+     * unrelated projects on the same server do not serialize each other.
+     */
+    private function lockName(): string
+    {
+        return 'lumy_migrations_' . substr(hash('sha256', $this->migrationsDirectory), 0, 32);
     }
 }

@@ -310,7 +310,11 @@ abstract class AbstractModel extends AbstractLumy
 				$orParts[] = "{$column} {$operator} ?";
 				if (in_array($operator, ['LIKE', 'NOT LIKE'], true)) {
 					$strVal = (string) $value;
-					$params[] = str_contains($strVal, '%') ? $strVal : "%{$strVal}%";
+					$isPattern = str_contains($strVal, '%');
+					$orParts[array_key_last($orParts)] .= $this->likeEscapeClause();
+					$params[] = $isPattern
+						? self::escapeLikeBackslashes($strVal)
+						: '%' . self::escapeLikeLiterals($strVal) . '%';
 				} else {
 					$params[] = $value;
 				}
@@ -450,8 +454,13 @@ abstract class AbstractModel extends AbstractLumy
 					$this->normalizeFieldName($stableField, $camelCaseTransform),
 					true
 				) . ' ASC';
-			} elseif ($this->getConnection()->getDriverName() === 'sqlsrv') {
-				$orders[] = '(SELECT NULL)';
+			} else {
+				// No mapped fields and no groupBy: keep pagination deterministic on
+				// every dialect. ORDER BY 1 references the first projected column;
+				// SQL Server needs the scalar-subquery form for OFFSET/FETCH.
+				$orders[] = $this->getConnection()->getDriverName() === 'sqlsrv'
+					? '(SELECT NULL)'
+					: '1';
 			}
 		}
 

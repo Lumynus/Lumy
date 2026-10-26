@@ -19,6 +19,9 @@ final class IbaseDriver implements DatabaseDriverInterface
     /** Active native transaction handle, when a transaction has started. */
     private $transaction = null;
 
+    /** Whether a native transaction is currently active. */
+    private bool $transactionActive = false;
+
     /**
      * Opens a Firebird/InterBase connection.
      *
@@ -65,6 +68,12 @@ final class IbaseDriver implements DatabaseDriverInterface
         array $params = [],
         string|array $types = ''
     ): array|bool {
+        foreach ($params as $key => $value) {
+            if ($value instanceof \DateTimeInterface) {
+                $params[$key] = $value->format('Y-m-d H:i:s');
+            }
+        }
+
         $target = $this->transaction ?: $this->connection;
         if ($params === []) {
             $result = \ibase_query($target, $query);
@@ -132,22 +141,30 @@ final class IbaseDriver implements DatabaseDriverInterface
     /** Starts an Ibase transaction for subsequent queries. */
     public function beginTransaction(): void
     {
+        if ($this->transactionActive) {
+            throw new \RuntimeException(
+                'Nested transactions are not supported by the Ibase driver; commit or roll back the active transaction first.'
+            );
+        }
+
         $transaction = \ibase_trans($this->connection);
         if ($transaction === false) {
             throw new \RuntimeException((string) \ibase_errmsg());
         }
         $this->transaction = $transaction;
+        $this->transactionActive = true;
     }
 
     /** Commits the active Ibase transaction and clears its handle. */
     public function commit(): void
     {
         if ($this->transaction === null) {
-            return;
+            throw new \RuntimeException('There is no active transaction to commit.');
         }
 
         $committed = \ibase_commit($this->transaction);
         $this->transaction = null;
+        $this->transactionActive = false;
         if ($committed === false) {
             throw new \RuntimeException((string) \ibase_errmsg());
         }
@@ -157,11 +174,12 @@ final class IbaseDriver implements DatabaseDriverInterface
     public function rollBack(): void
     {
         if ($this->transaction === null) {
-            return;
+            throw new \RuntimeException('There is no active transaction to roll back.');
         }
 
         $rolledBack = \ibase_rollback($this->transaction);
         $this->transaction = null;
+        $this->transactionActive = false;
         if ($rolledBack === false) {
             throw new \RuntimeException((string) \ibase_errmsg());
         }

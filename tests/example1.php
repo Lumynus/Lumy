@@ -120,6 +120,12 @@ class AuthorModel extends AbstractModel
         ],
     ];
 
+    /** Expõe customQuery (protegido) para asserções diretas da suíte. */
+    public function rawQuery(string $sql, array $params = []): array|bool
+    {
+        return $this->customQuery($sql, $params);
+    }
+
     public function setupSchema(): void
     {
         $this->customQuery('CREATE TABLE authors (
@@ -226,5 +232,94 @@ assertThrows(InvalidArgumentException::class, function () use ($authors): void {
 assertThrows(InvalidArgumentException::class, function () use ($authors): void {
     $authors->insert(['full_name; DROP TABLE authors;--' => 'Hack']);
 }, 'Identificador de coluna invalido deve ser bloqueado');
+
+// 6. LIKE literal: curingas digitados pelo usuario devem casar literalmente
+$underscoreRows = $authors->select(filters: ['fullName LIKE' => 'A_a'], camelCaseTransform: true);
+assertSameValue(0, count($underscoreRows), 'Underscore literal nao pode casar "Ana" (bug de escape)');
+
+$wildcardRows = $authors->select(filters: ['fullName LIKE' => '%Maria%'], camelCaseTransform: true);
+assertSameValue(1, count($wildcardRows), 'Coringa % digitado pelo usuario ainda deve funcionar');
+
+// 7. DateTimeInterface no binding nao pode causar fatal
+$ts = $authors->rawQuery('SELECT ? AS ts', [new DateTimeImmutable('2026-10-19 12:00:00')]);
+assertSameValue('2026-10-19 12:00:00', $ts[0]['ts'], 'DateTimeInterface deve ser formatado no binding');
+
+// 8. Parametros nomeados (com e sem prefixo ":")
+$named = $authors->rawQuery(
+    'SELECT full_name FROM authors WHERE email_address = :email',
+    ['email' => 'ana@lumy.dev']
+);
+assertSameValue('Ana Maria Silva', $named[0]['full_name'], 'Parametro nomeado sem ":" no array deve ser aceito');
+
+$namedColon = $authors->rawQuery(
+    'SELECT full_name FROM authors WHERE email_address = :email',
+    [':email' => 'ana@lumy.dev']
+);
+assertSameValue('Ana Maria Silva', $namedColon[0]['full_name'], 'Parametro nomeado com ":" no array deve ser aceito');
+
+assertThrows(InvalidArgumentException::class, function () use ($authors): void {
+    $authors->rawQuery('SELECT ? AS a', ['missing' => 1]);
+}, 'Chave de parametro nomeado ausente na query deve ter erro claro');
+
+// 9. Transacoes aninhadas via savepoint
+$nestedOuter = null;
+$authors->transaction(function (AuthorModel $model) use (&$nestedOuter): void {
+    $model->insert([
+        'full_name' => 'Outer Commit',
+        'email_address' => 'outer@lumy.dev',
+        'status_code' => 'active',
+    ]);
+    try {
+        $model->transaction(function (AuthorModel $inner): void {
+            $inner->insert([
+                'full_name' => 'Inner Rollback',
+                'email_address' => 'inner@lumy.dev',
+                'status_code' => 'temp',
+            ]);
+            throw new RuntimeException('Reverte apenas o savepoint interno');
+        });
+    } catch (RuntimeException) {
+    }
+    $nestedOuter = 'reached';
+});
+assertSameValue('reached', $nestedOuter, 'Erro no savepoint interno nao pode abortar a transacao externa');
+
+$outerRow = (new Model('authors'))->get(['email_address' => 'outer@lumy.dev']);
+$innerRow = (new Model('authors'))->get(['email_address' => 'inner@lumy.dev']);
+assertSameValue(true, is_array($outerRow), 'Commit externo deve persistir o insert externo');
+assertSameValue(null, $innerRow, 'Rollback do savepoint interno deve desfazer o insert interno');
+
+// 10. Paginacao deterministica com campos mapeados
+$page1 = $authors->select(orderBy: 'id ASC', offset: 0, limit: 2);
+$page2 = $authors->select(orderBy: 'id ASC', offset: 2, limit: 2);
+assertSameValue(true, count($page1) === 2, 'Pagina 1 deve retornar 2 registros');
+assertSameValue(
+    [],
+    array_intersect(
+        array_column($page1, 'id'),
+        array_column($page2, 'id')
+    ),
+    'Paginas consecutivas nao podem se sobrepor'
+);
+
+// 11. Migrations em SQLite: executa pendentes e ignora aplicadas
+$migrationsDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'lumy_suite_migrations_' . getmypid();
+@mkdir($migrationsDir);
+file_put_contents(
+    $migrationsDir . DIRECTORY_SEPARATOR . '001_create_users.sql',
+    "CREATE TABLE IF NOT EXISTS suite_users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);"
+);
+
+$firstRun = (new Migrations('default', $migrationsDir))->run();
+assertSameValue(['001_create_users.sql'], $firstRun, 'Primeira execucao deve aplicar a migration pendente');
+
+$secondRun = (new Migrations('default', $migrationsDir))->run();
+assertSameValue([], $secondRun, 'Segunda execucao nao deve reaplicar migrations ja registradas');
+
+$userCount = $authors->rawQuery('SELECT COUNT(*) AS total FROM suite_users');
+assertSameValue(0, (int) $userCount[0]['total'], 'Tabela criada pela migration deve existir e estar vazia');
+
+array_map('unlink', glob($migrationsDir . DIRECTORY_SEPARATOR . '*.sql') ?: []);
+@rmdir($migrationsDir);
 
 echo "Todos os testes do Lumy executados com sucesso!" . PHP_EOL;

@@ -127,6 +127,21 @@ O histórico guarda nomes, não hashes do conteúdo. Depois de aplicada, não ed
 uma migration existente: crie outro arquivo numerado. Não há comando de
 rollback/down; alterações inversas devem ser escritas como uma nova migration.
 
+Para impedir que dois processos apliquem os mesmos arquivos ao mesmo tempo, o
+runner adquire um lock global no servidor antes de executar e o libera ao
+terminar (`finally`, mesmo em caso de erro). O lock é nomeado a partir da pasta
+de migrations, então projetos diferentes no mesmo servidor não se bloqueiam:
+
+- MySQL/MariaDB: `GET_LOCK`.
+- PostgreSQL: `pg_try_advisory_lock` com `hashtext`.
+- SQL Server: `sp_getapplock` com `@LockOwner = 'Session'`.
+- SQLite e Firebird: sem lock de servidor. Em SQLite os escritores já são
+  serializados e, em ambos, a chave primária da tabela de histórico impede o
+  registro duplicado de uma migration.
+
+Se o lock não estiver disponível em 60 segundos, `run()` lança `RuntimeException`
+e nenhuma migration pendente é aplicada.
+
 Se uma migration falhar, o runner interrompe a execução e não registra aquele
 arquivo. Corrija a causa antes de executar novamente. Em drivers transacionais,
 cada arquivo é executado em uma transação e recebe rollback em caso de erro.
@@ -154,11 +169,11 @@ CREATE INDEX idx_categories_name ON categories (name);
 ```
 
 Strings entre aspas simples/duplas, identificadores entre crases ou colchetes,
-comentários de linha (`--`, `#`) e comentários de bloco (`/* ... */`) são
-considerados pelo separador. `DELIMITER` do cliente MySQL e blocos dollar-quoted
-do PostgreSQL (como `DO $$ ... $$`) não são suportados. Para procedures,
-functions e triggers com delimitadores especiais, use uma ferramenta específica
-do banco ou uma migration PHP executada por outro mecanismo.
+comentários de linha (`--`, `#`), comentários de bloco (`/* ... */`) e blocos
+dollar-quoted do PostgreSQL (`$$ ... $$` ou `$tag$ ... $tag$`) são considerados
+pelo separador. O comando `DELIMITER` do cliente MySQL não é suportado. Para
+procedures, functions e triggers com delimitadores especiais, use uma ferramenta
+específica do banco ou uma migration PHP executada por outro mecanismo.
 
 Use SQL compatível com o driver configurado. DDL, tipos, índices, sequências e
 identidades variam entre bancos; o runner não converte SQL de um dialeto para

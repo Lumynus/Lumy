@@ -19,6 +19,18 @@ final class MysqlDriver implements DatabaseDriverInterface
     /** Most recently prepared statement, used for affected-row inspection. */
     private ?\mysqli_stmt $stmt = null;
 
+    /** Current transaction nesting depth; 0 means no active transaction. */
+    private int $transactionDepth = 0;
+
+    /** Original constructor arguments kept so the connection can be reopened. */
+    private array $connectionArgs;
+
+    /** Version string reported by the server, sniffed once on demand. */
+    private ?string $serverVersion = null;
+
+    /** Whether the server version has already been queried. */
+    private bool $versionSniffed = false;
+
     /**
      * Opens a MySQLi connection.
      *
@@ -26,6 +38,8 @@ final class MysqlDriver implements DatabaseDriverInterface
      * @param string $user Database username.
      * @param mixed $password Database password.
      * @param string $database Database name.
+     * @param array $options Extra driver options. The "ssl" key accepts an array
+     *        with the mysqli ssl_set entries: key, cert, ca, capath, cipher.
      *
      * @throws \mysqli_sql_exception If the connection cannot be established.
      */
@@ -34,19 +48,43 @@ final class MysqlDriver implements DatabaseDriverInterface
         string $user,
         #[\SensitiveParameter]
         mixed $password,
-        string $database
+        string $database,
+        array $options = []
     ) {
+        $this->connectionArgs = compact('host', 'user', 'password', 'database', 'options');
+        $this->openConnection();
+    }
+
+    private function openConnection(): void
+    {
+        ['host' => $host, 'user' => $user, 'password' => $password, 'database' => $database, 'options' => $options]
+            = $this->connectionArgs;
+
         [$hostname, $port] = self::splitHostPort($host);
         $pass = $password === null ? null : (string) $password;
-        $this->mysql = $port !== null
-            ? new \mysqli($hostname, $user, $pass, $database, $port)
-            : new \mysqli($hostname, $user, $pass, $database);
 
-        if ($this->mysql->connect_errno !== 0) {
-            throw new \RuntimeException((string) $this->mysql->connect_error);
+        // Deferred connect so SSL options can be applied before the handshake.
+        $mysql = new \mysqli();
+        $ssl = $options['ssl'] ?? null;
+        if (is_array($ssl) && $ssl !== []) {
+            $mysql->ssl_set(
+                $ssl['key'] ?? null,
+                $ssl['cert'] ?? null,
+                $ssl['ca'] ?? null,
+                $ssl['capath'] ?? null,
+                $ssl['cipher'] ?? null
+            );
+        }
+        $mysql->real_connect($hostname, $user, $pass, $database, $port ?? 0);
+
+        if ($mysql->connect_errno !== 0) {
+            throw new \RuntimeException((string) $mysql->connect_error);
         }
 
-        $this->mysql->set_charset('utf8mb4');
+        $mysql->set_charset('utf8mb4');
+        $this->mysql = $mysql;
+        $this->transactionDepth = 0;
+        $this->stmt = null;
     }
 
     /** @return array{string, int|null} */
@@ -66,6 +104,8 @@ final class MysqlDriver implements DatabaseDriverInterface
     /**
      * Executes a prepared statement and fetches rows when it returns a result set.
      *
+     * A lost server connection is retried once when no transaction is active.
+     *
      * @param string $query SQL statement with MySQLi placeholders.
      * @param array $params Positional values to bind to the statement.
      * @param string|array $types MySQLi bind types, such as "sis"; array values are concatenated.
@@ -80,6 +120,24 @@ final class MysqlDriver implements DatabaseDriverInterface
         array $params = [],
         string|array $types = ''
     ): array|bool {
+        try {
+            return $this->executeStatement($query, $params, $types);
+        } catch (\mysqli_sql_exception $exception) {
+            if (
+                $this->transactionDepth === 0
+                && in_array((int) $exception->getCode(), [2006, 2013], true)
+            ) {
+                $this->openConnection();
+
+                return $this->executeStatement($query, $params, $types);
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function executeStatement(string $query, array $params, string|array $types): array|bool
+    {
         $this->stmt = $this->mysql->prepare($query);
         if (!$this->stmt) {
             throw new \RuntimeException($this->mysql->error);
@@ -87,6 +145,12 @@ final class MysqlDriver implements DatabaseDriverInterface
 
         if ($params !== []) {
             $bindParams = array_values($params);
+            foreach ($bindParams as $index => $value) {
+                if ($value instanceof \DateTimeInterface) {
+                    $bindParams[$index] = $value->format('Y-m-d H:i:s');
+                }
+            }
+
             $bindTypes = is_array($types) ? implode('', $types) : $types;
 
             if ($bindTypes === '') {
@@ -131,6 +195,9 @@ final class MysqlDriver implements DatabaseDriverInterface
      * MySQL detects conflicts through any unique index on the table; $uniqueBy
      * determines which input columns are left unchanged during an update.
      *
+     * MySQL >= 8.0.19 uses the non-deprecated row alias form (AS new / new.col);
+     * MariaDB and older MySQL versions keep the legacy VALUES(col) form.
+     *
      * @param string $table Table name.
      * @param array<string, mixed> $data Column values.
      * @param list<string> $uniqueBy Unique-key columns.
@@ -139,22 +206,51 @@ final class MysqlDriver implements DatabaseDriverInterface
     {
         [$columns, $uniqueBy] = self::validateUpsert($table, $data, $uniqueBy);
         $updates = array_values(array_diff($columns, $uniqueBy));
+
+        $columnList = implode(', ', $columns);
+        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+        $head = "INSERT INTO {$table} ({$columnList}) VALUES ({$placeholders}) ";
+
         if ($updates === []) {
-            $updates = [$uniqueBy[0]];
-            $assignments = "{$updates[0]} = {$updates[0]}";
+            $sql = $head . "ON DUPLICATE KEY UPDATE {$uniqueBy[0]} = {$uniqueBy[0]}";
+        } elseif ($this->supportsUpsertRowAlias()) {
+            $assignments = implode(', ', array_map(
+                static fn (string $column): string => "{$column} = new.{$column}",
+                $updates
+            ));
+            $sql = $head . "AS new ON DUPLICATE KEY UPDATE {$assignments}";
         } else {
             $assignments = implode(', ', array_map(
                 static fn (string $column): string => "{$column} = VALUES({$column})",
                 $updates
             ));
+            $sql = $head . "ON DUPLICATE KEY UPDATE {$assignments}";
         }
 
-        $columnList = implode(', ', $columns);
-        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
-        $sql = "INSERT INTO {$table} ({$columnList}) VALUES ({$placeholders}) "
-            . "ON DUPLICATE KEY UPDATE {$assignments}";
-
         return $this->query($sql, array_values($data)) === true;
+    }
+
+    /**
+     * Whether the server supports the row alias form of upsert
+     * (MySQL >= 8.0.19; MariaDB always uses the legacy VALUES() form).
+     */
+    private function supportsUpsertRowAlias(): bool
+    {
+        if (!$this->versionSniffed) {
+            $this->versionSniffed = true;
+            try {
+                $row = $this->mysql->query('SELECT VERSION()')->fetch_row();
+                $this->serverVersion = is_array($row) ? (string) $row[0] : null;
+            } catch (\Throwable) {
+                $this->serverVersion = null;
+            }
+        }
+
+        if ($this->serverVersion === null || stripos($this->serverVersion, 'mariadb') !== false) {
+            return false;
+        }
+
+        return version_compare(explode('-', $this->serverVersion)[0], '8.0.19', '>=');
     }
 
     /** @return array{list<string>, list<string>} */
@@ -174,28 +270,64 @@ final class MysqlDriver implements DatabaseDriverInterface
         return [array_values($columns), array_values($uniqueBy)];
     }
 
-    /** Starts a MySQL transaction. */
+    /**
+     * Starts a MySQL transaction or, when one is already active, a savepoint.
+     */
     public function beginTransaction(): void
     {
-        if (!$this->mysql->begin_transaction()) {
-            throw new \RuntimeException($this->mysql->error);
+        if ($this->transactionDepth === 0) {
+            if (!$this->mysql->begin_transaction()) {
+                throw new \RuntimeException($this->mysql->error);
+            }
+            $this->transactionDepth = 1;
+
+            return;
         }
+
+        $this->mysql->query('SAVEPOINT lumy_sp_' . $this->transactionDepth);
+        $this->transactionDepth++;
     }
 
-    /** Commits the active MySQL transaction. */
+    /** Commits the active transaction or releases the innermost savepoint. */
     public function commit(): void
     {
-        if (!$this->mysql->commit()) {
-            throw new \RuntimeException($this->mysql->error);
+        if ($this->transactionDepth === 0) {
+            throw new \RuntimeException('There is no active transaction to commit.');
         }
+
+        if ($this->transactionDepth === 1) {
+            if (!$this->mysql->commit()) {
+                throw new \RuntimeException($this->mysql->error);
+            }
+            $this->transactionDepth = 0;
+
+            return;
+        }
+
+        $this->transactionDepth--;
+        $this->mysql->query('RELEASE SAVEPOINT lumy_sp_' . $this->transactionDepth);
     }
 
-    /** Rolls back the active MySQL transaction. */
+    /** Rolls back the active transaction or to the innermost savepoint. */
     public function rollBack(): void
     {
-        if (!$this->mysql->rollback()) {
-            throw new \RuntimeException($this->mysql->error);
+        if ($this->transactionDepth === 0) {
+            throw new \RuntimeException('There is no active transaction to roll back.');
         }
+
+        if ($this->transactionDepth === 1) {
+            if (!$this->mysql->rollback()) {
+                throw new \RuntimeException($this->mysql->error);
+            }
+            $this->transactionDepth = 0;
+
+            return;
+        }
+
+        $this->transactionDepth--;
+        $name = 'lumy_sp_' . $this->transactionDepth;
+        $this->mysql->query('ROLLBACK TO SAVEPOINT ' . $name);
+        $this->mysql->query('RELEASE SAVEPOINT ' . $name);
     }
 
     /**

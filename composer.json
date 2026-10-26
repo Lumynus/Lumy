@@ -1,6 +1,7 @@
 {
     "name": "lumynus/lumy",
     "description": "MicroORM from Lumynus",
+    "type": "library",
     "autoload": {
         "psr-4": {
             "Lumynus\\Lumy\\": "src/"
@@ -12,5 +13,16 @@
             "email": "welenysantos@gmail.com"
         }
     ],
-    "require": {}
+    "require": {
+        "php": ">=8.2"
+    },
+    "suggest": {
+        "ext-mysqli": "Native driver for mysql/mariadb (default when available)",
+        "ext-pdo_mysql": "PDO fallback for mysql, or the explicit pdo_mysql driver",
+        "ext-pdo_pgsql": "Required for postgresql, pgsql and postgres",
+        "ext-pdo_sqlite": "Required for sqlite (used by tests and examples)",
+        "ext-pdo_sqlsrv": "Required for sqlserver, sqlsrv and mssql",
+        "ext-pdo_firebird": "PDO Firebird driver used on PHP 8+",
+        "ext-interbase": "Legacy native Firebird/InterBase driver"
+    }
 }

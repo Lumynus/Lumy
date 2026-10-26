@@ -42,6 +42,7 @@ abstract class LumyConnection
      * @param string $dataBase Database name or SQLite file path.
      * @param bool $newConnection Whether to bypass reuse of a pooled connection.
      * @param string $connectionIdentifier Logical name used to distinguish connections.
+     * @param array $options Extra driver options forwarded to the driver (see Config).
      *
      * @return DatabaseDriverInterface The connected driver instance.
      *
@@ -56,7 +57,8 @@ abstract class LumyConnection
         mixed $password,
         string $dataBase,
         bool $newConnection = false,
-        string $connectionIdentifier = 'default'
+        string $connectionIdentifier = 'default',
+        array $options = []
     ): DatabaseDriverInterface {
         [$type, $host, $user, $password, $dataBase] = self::normalizeConfiguration(
             $type,
@@ -83,33 +85,39 @@ abstract class LumyConnection
             unset(self::$connections[$key]);
         }
 
+        // Note: the pool key intentionally ignores $options so the existing
+        // closeConnection() signature keeps matching; the first registration
+        // for a credential set decides the driver options used by the pool.
         $connection = match ($type) {
             'mysql', 'mariadb' => extension_loaded('mysqli')
-                ? new MysqlDriver($host, $user, $password, $dataBase)
-                : new PdoDriver('mysql', $host, $user, $password, $dataBase),
+                ? new MysqlDriver($host, $user, $password, $dataBase, $options)
+                : new PdoDriver('mysql', $host, $user, $password, $dataBase, $options),
             'pdo_mysql' => new PdoDriver(
                 'mysql',
                 $host,
                 $user,
                 $password,
-                $dataBase
+                $dataBase,
+                $options
             ),
             'postgresql', 'sqlite', 'sqlserver' => new PdoDriver(
                 $type,
                 $host,
                 $user,
                 $password,
-                $dataBase
+                $dataBase,
+                $options
             ),
             'ibase', 'firebird' => function_exists('ibase_connect')
                 ? new IbaseDriver($host, $user, $password, $dataBase)
-                : new PdoDriver('firebird', $host, $user, $password, $dataBase),
+                : new PdoDriver('firebird', $host, $user, $password, $dataBase, $options),
             'pdo_firebird' => new PdoDriver(
                 'firebird',
                 $host,
                 $user,
                 $password,
-                $dataBase
+                $dataBase,
+                $options
             ),
             default => throw new \InvalidArgumentException(
                 "Unsupported database type: {$type}"

@@ -112,8 +112,11 @@ consulta seleciona todas as colunas, ou apenas as indicadas em `fielders`.
 
 `offset` é a quantidade de linhas a ignorar e `limit` é a quantidade máxima de
 linhas. `limit: null` desativa o limite. Quando há paginação sem `orderBy`, o
-modelo usa `id ASC` como ordem estável. Um `limit` igual a zero retorna uma
-lista vazia.
+modelo usa uma ordem estável: `id ASC` quando o campo `id` faz parte do mapa,
+a primeira coluna mapeada quando existe um mapa `$fields`, a primeira coluna do
+`groupBy` quando há agrupamento e, sem nada disso, a primeira coluna projetada
+(`ORDER BY 1`; no SQL Server, `ORDER BY (SELECT NULL)`). Um `limit` igual a zero
+retorna uma lista vazia.
 
 ## CamelCase
 
@@ -407,12 +410,60 @@ $users->delete(['!age BETWEEN' => [18, 65]]);
 
 Eles geram `<>`, `NOT IN` e `NOT BETWEEN`, respectivamente.
 
+## LIKE e NOT LIKE
+
+Filtros `LIKE` / `!... LIKE` recebem tratamento de escape para que os curingas
+sejam controlados pelo chamador:
+
+- Se o valor contém `%`, ele é usado como padrão e apenas barras invertidas são
+  escapadas. O chamador decide onde colocar `%` e `_`.
+- Se o valor não contém `%`, são escapados `%`, `_` e `\`, e o padrão é cercado
+  por `%` (busca por "contém").
+
+Isso evita que um valor digitado como `A_a` case `Ana`:
+
+```php
+$users->select(filters: ['name LIKE' => 'A_a']);   // casa literalmente A_a
+$users->select(filters: ['name LIKE' => '%Maria%']); // curingas controlados
+```
+
+A cláusula `ESCAPE` é emitida de forma compatível com cada dialeto. Se você
+monta um `LIKE` fora do construtor de filtros (por exemplo, num `WHERE` em
+string personalizado), o escape não é aplicado automaticamente.
+
+## Transações
+
+`transaction()` agrupa operações e aceita callbacks. Transações aninhadas usam
+savepoints nos drivers que os suportam:
+
+```php
+$users->transaction(function ($model): void {
+    $model->insert([...]);
+    $model->transaction(function ($inner): void {
+        $inner->insert([...]); // savepoint
+    });
+});
+```
+
+- PDO (MySQL, PostgreSQL, SQLite): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
+- SQL Server: `SAVE TRANSACTION` / `ROLLBACK TRANSACTION`.
+- MySQLi (`MysqlDriver`): savepoints equivalentes ao PDO.
+- Ibase/Firebird nativo: **não** suporta aninhamento; o segundo
+  `beginTransaction()` lança `RuntimeException`. Use a variante `pdo_firebird`
+  se precisar de savepoints.
+
+Quando a conexão cai fora de uma transação, os drivers PDO e MySQLi tentam
+reabrir a conexão e repetir a operação uma única vez. Dentro de uma transação a
+reconexão é desativada para não perder o estado transacional.
+
 ## Segurança e limitações
 
 - Os valores de `insert`, `update` e `where` são enviados por parâmetros
   preparados.
 - Expressões `WHERE` personalizadas são SQL escrito pelo desenvolvedor; use
     placeholders (`?`) para valores e nunca concatene entrada não confiável.
+- Em `LIKE`, curingas digitados sem intenção são escapados; veja a seção
+  "LIKE e NOT LIKE" para o comportamento exato.
 - Os operadores aceitos são validados pelo modelo.
 - Não concatene valores recebidos de usuários nas chaves do `where`.
 - `update()` e `delete()` não aceitam condições vazias.
@@ -420,3 +471,5 @@ Eles geram `<>`, `NOT IN` e `NOT BETWEEN`, respectivamente.
   a leitura de generators não foi implementada.
 - `getAffectedRows()` retorna o que o driver reporta. Alguns bancos podem
   reportar zero quando um `UPDATE` grava o mesmo valor que já estava na linha.
+- `DateTimeInterface` é aceito em `insert`/`update`/`where` e formatado como
+  `Y-m-d H:i:s` antes do binding.

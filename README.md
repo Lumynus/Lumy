@@ -133,6 +133,47 @@ Config::setConnection(
 );
 ```
 
+### 3.6. Opções Avançadas (SSL e Atributos PDO)
+
+O nono argumento opcional `options` permite ajustar a conexão:
+
+- **PDO** (`PdoDriver`): chaves inteiras são atributos `PDO::ATTR_*` repassados ao
+  construtor do PDO. Para PostgreSQL, a chave-string `'sslmode'` é aceita e
+  validada (`disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full`).
+- **MySQLi** (`MysqlDriver`): a chave `'ssl'` recebe um array `key`, `cert`, `ca`,
+  `capath`, `cipher`, aplicado antes do handshake.
+
+```php
+new Config(
+    driver: 'postgresql',
+    host: 'db.example.com',
+    user: 'app_user',
+    password: 'secret_password',
+    database: 'minha_aplicacao',
+    options: ['sslmode' => 'require']
+);
+
+Config::setConnection(
+    connectionIdentifier: 'mysql_tls',
+    driver: 'mysql',
+    host: 'db.example.com',
+    user: 'app_user',
+    password: 'secret_password',
+    database: 'minha_aplicacao',
+    options: [
+        'ssl' => [
+            'ca'   => '/etc/ssl/ca.pem',
+            'cert' => '/etc/ssl/client-cert.pem',
+            'key'  => '/etc/ssl/client-key.pem',
+        ],
+    ]
+);
+```
+
+> O pool de conexões é indexado pelas credenciais e pelo `connectionIdentifier`
+> (o `options` não entra na chave). Registre o primeiro `Config` de um conjunto
+> de credenciais com as opções definitivas.
+
 ---
 
 ## 4. Formas de Uso (Model Rápido vs. Subclasse `AbstractModel`)
@@ -293,7 +334,7 @@ $rows = $userModel->select(
 | `'!status' => 'blocked'` ou `'status !=' => 'blocked'` | `status <> ?` / `status != ?` | Diferente de |
 | `'age >' => 18`, `'age >=' => 18` | `age > ?`, `age >= ?` | Maior que / Maior ou igual |
 | `'age <' => 65`, `'age <=' => 65` | `age < ?`, `age <= ?` | Menor que / Menor ou igual |
-| `'name LIKE' => 'Ana'` | `name LIKE ?` (`'%Ana%'`) | Contém texto (se já possuir `%`, mantém o padrão informado) |
+| `'name LIKE' => 'Ana'` | `name LIKE ?` (`'%Ana%'`) | Contém texto; `%` e `_` digitados sem intenção são escapados (veja a nota abaixo) |
 | `'!name LIKE' => 'Ana'` ou `'name NOT LIKE' => 'Ana'` | `name NOT LIKE ?` (`'%Ana%'`) | Não contém texto |
 | `'status' => ['active', 'pending']` ou `'status IN' => [...]` | `status IN (?, ?)` | Pertence à lista de valores |
 | `'!status' => ['blocked', 'banned']` ou `'status NOT IN' => [...]` | `status NOT IN (?, ?)` | Não pertence à lista |
@@ -302,6 +343,13 @@ $rows = $userModel->select(
 | `'email' => null` ou `'email IS' => null` | `email IS NULL` | Valor nulo |
 | `'!email' => null` ou `'email IS NOT' => null` | `email IS NOT NULL` | Valor não nulo |
 | `'email \|\| username' => 'ana'` | `(email = ? OR username = ?)` | Condição `OR` entre colunas com o mesmo valor |
+
+> **LIKE e curingas:** quando o valor não contém `%`, os caracteres `%`, `_` e `\`
+> são escapados e o padrão vira `%valor%` (busca por "contém"). Quando o valor já
+> contém `%`, ele é usado como padrão e apenas `\` é escapado, deixando você
+> controlar os curingas. Assim `'A_a'` casa literalmente `A_a` e não `Ana`,
+> enquanto `'%Maria%'` continua funcionando como busca ampla. A cláusula
+> `ESCAPE` é emitida de forma compatível com cada dialeto.
 
 ---
 
@@ -406,6 +454,34 @@ try {
 }
 ```
 
+### Transações Aninhadas (Savepoints)
+Transações aninhadas usam savepoints nos drivers que os suportam. Se o bloco
+interno falhar, apenas ele é revertido e o bloco externo pode continuar:
+
+```php
+$walletModel->transaction(function (WalletModel $model): void {
+    $model->insert([...]);
+
+    try {
+        $model->transaction(function (WalletModel $inner): void {
+            $inner->insert([...]); // savepoint
+            throw new RuntimeException('reverte apenas o savepoint');
+        });
+    } catch (RuntimeException) {
+        // o insert externo continua válido
+    }
+});
+```
+
+- PDO (MySQL, PostgreSQL, SQLite): `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`.
+- SQL Server: `SAVE TRANSACTION` / `ROLLBACK TRANSACTION`.
+- Ibase nativo: não suporta aninhamento; o segundo `beginTransaction()` lança
+  `RuntimeException`.
+
+Se a conexão cair fora de uma transação, os drivers PDO e MySQLi tentam reabrir
+a conexão e repetir a operação uma única vez. Dentro de uma transação a
+reconexão é desativada para não perder o estado transacional.
+
 ---
 
 ## 10. Múltiplas Conexões e Gerenciamento de Pool
@@ -456,18 +532,22 @@ Recursos suportados pelo parser de migrations do Lumy:
 - Múltiplos statements separados por `;` no mesmo arquivo `.sql`;
 - Comentários de linha (`--` e `#`) e blocos (`/* ... */`);
 - Strings com escape, identificadores entre crases, aspas ou colchetes e blocos dollar-quoted do PostgreSQL (`$$ ... $$` ou `$tag$ ... $tag$`);
-- Transação automática por arquivo em bancos que suportam DDL transacional (SQLite, PostgreSQL, SQL Server, Firebird).
+- Transação automática por arquivo em bancos que suportam DDL transacional (SQLite, PostgreSQL, SQL Server, Firebird);
+- **Lock global por pasta de migrations** para impedir execução concorrente: `GET_LOCK` (MySQL/MariaDB), `pg_try_advisory_lock` (PostgreSQL) e `sp_getapplock` (SQL Server). SQLite e Firebird não possuem lock de servidor; nesses casos a chave primária de `lumy_migrations` impede o registro duplicado. O lock é liberado sempre ao final do `run()`, inclusive em erro.
 
 ---
 
 ## 12. Segurança e Boas Práticas
 
 O Lumy foi projetado com camadas rigorosas de segurança:
-1. **Prepared Statements em 100% dos Valores:** Todos os dados de `insert()`, `upsert()`, `update()`, `delete()` e `select()` são enviados via *parameter binding* tipado (`PDO::PARAM_INT`, `PDO::PARAM_BOOL`, `PDO::PARAM_NULL`, `PDO::PARAM_STR` e inferência de tipos `i`/`d`/`s` no MySQLi).
+1. **Prepared Statements em 100% dos Valores:** Todos os dados de `insert()`, `upsert()`, `update()`, `delete()` e `select()` são enviados via *parameter binding* tipado (`PDO::PARAM_INT`, `PDO::PARAM_BOOL`, `PDO::PARAM_NULL`, `PDO::PARAM_STR` e inferência de tipos `i`/`d`/`s` no MySQLi). No MySQL, os *prepares* são nativos no servidor (`EMULATE_PREPARES=false`) e `MULTI_STATEMENTS` fica desativado.
 2. **Validação Estrita de Identificadores SQL:** Nomes de tabelas, colunas e aliases passam por validação de expressão regular (`/\A[A-Za-z_][A-Za-z0-9_]*\z/`), bloqueando injeção de SQL via chaves de arrays.
 3. **Proteção de Whitelist no Mapa `$fields`:** Quando uma `AbstractModel` define `$fields`, qualquer tentativa de filtrar ou ordenar por uma coluna não mapeada (mesmo que qualificada como `tabela.coluna_secreta`) é bloqueada com `InvalidArgumentException`.
 4. **Proteção de Credenciais em Stack Traces (`#[\SensitiveParameter]`):** Todos os parâmetros de senha em `Config`, `LumyConnection` e nos drivers utilizam o atributo nativo `#[\SensitiveParameter]`, evitando que senhas vazem em logs de erro ou stack traces.
 5. **Bloqueio de `UPDATE` e `DELETE` sem `WHERE`:** Condições vazias são rejeitadas por padrão para evitar perda acidental de dados.
+6. **Escape de Curingas em `LIKE`:** `%`, `_` e `\` digitados sem intenção são escapados; a cláusula `ESCAPE` respeita cada dialeto. Veja a nota na seção de filtros.
+7. **`DateTimeInterface` seguro:** Objetos `DateTimeInterface` em `insert`/`update`/`where` são formatados como `Y-m-d H:i:s` antes do binding, sem risco de fatal error.
+8. **DSN Sanitizado:** Para drivers de rede, `host` e `database` rejeitam `;`, `\x00`, `\r` e `\n`; o `sslmode` do PostgreSQL é validado por whitelist.
 
 ---
 

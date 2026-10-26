@@ -185,7 +185,8 @@ abstract class AbstractLumy extends LumyConnection
             $configuration['password'],
             $configuration['database'],
             $configuration['newConnection'],
-            $this->connectionIdentifier
+            $this->connectionIdentifier,
+            $configuration['options'] ?? []
         );
 
         return $this->modelConnection;
@@ -214,6 +215,30 @@ abstract class AbstractLumy extends LumyConnection
         }
 
         return array_values($columns);
+    }
+
+    /**
+     * SQL fragment appended to LIKE / NOT LIKE so the backslash escapes below
+     * are honored on every supported dialect (MySQL needs the doubled form
+     * because its string literals treat a single backslash as an escape).
+     */
+    protected function likeEscapeClause(): string
+    {
+        return $this->getConnection()->getDriverName() === 'mysql'
+            ? " ESCAPE '\\\\'"
+            : " ESCAPE '\\'";
+    }
+
+    /** Escapes backslashes only, keeping user-supplied % / _ wildcards. */
+    protected static function escapeLikeBackslashes(string $value): string
+    {
+        return str_replace('\\', '\\\\', $value);
+    }
+
+    /** Escapes every LIKE metacharacter so the value matches literally. */
+    protected static function escapeLikeLiterals(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
 
     /** @return array{string, list<mixed>} */
@@ -327,7 +352,11 @@ abstract class AbstractLumy extends LumyConnection
                 $columnConditions[] = "{$column} {$operator} ?";
                 if (in_array($operator, ['LIKE', 'NOT LIKE'], true)) {
                     $strVal = (string) $value;
-                    $params[] = str_contains($strVal, '%') ? $strVal : "%{$strVal}%";
+                    $isPattern = str_contains($strVal, '%');
+                    $columnConditions[array_key_last($columnConditions)] .= $this->likeEscapeClause();
+                    $params[] = $isPattern
+                        ? self::escapeLikeBackslashes($strVal)
+                        : '%' . self::escapeLikeLiterals($strVal) . '%';
                 } else {
                     $params[] = $value;
                 }
