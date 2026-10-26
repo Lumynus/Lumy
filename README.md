@@ -91,7 +91,7 @@ Na prática, ele ocupa o ponto de equilíbrio ideal entre o **PDO puro** (que ex
 8. [Joins, Aliases e Agregações (`GROUP BY`)](#-8-joins-aliases-e-agregações-group-by)
 9. [Transações (Todas as Formas de Uso)](#-9-transações-todas-as-formas-de-uso)
 10. [Múltiplas Conexões e Gerenciamento de Pool](#-10-múltiplas-conexões-e-gerenciamento-de-pool)
-11. [Migrations SQL (CLI e Programático)](#-11-migrations-sql-cli-e-programático)
+11. [Migrations SQL (Todas as Formas de Executar)](#-11-migrations-sql-todas-as-formas-de-executar)
 12. [Segurança e Boas Práticas](#-12-segurança-e-boas-práticas)
 13. [Exemplos Executáveis e Links Oficiais](#-13-exemplos-executáveis-e-links-oficiais)
 
@@ -645,20 +645,124 @@ LumyConnection::closeAll();
 
 ---
 
-## 🗂️ 11. Migrations SQL (CLI e Programático)
+## 🗂️ 11. Migrations SQL (Todas as Formas de Executar)
 
-O Lumy inclui um runner de migrations que executa arquivos `.sql` pendentes em ordem natural e registra o histórico na tabela `lumy_migrations`.
+O Lumy inclui um **Runner de Migrations SQL** nativo (`Lumynus\Lumy\Migrations` e `bin/migrate.php`) que executa arquivos `.sql` pendentes em ordem natural (`001_...`, `002_...`) e registra o histórico na tabela `lumy_migrations`.
 
-### Via CLI (`bin/migrate.php`)
+### 11.1. Preparando os Arquivos `.sql` e o `bootstrap.php`
+
+1. Crie a pasta de migrations (por padrão `database/migrations/`) com arquivos `.sql` numerados:
+   ```text
+   database/
+   └── migrations/
+       ├── 001_create_users.sql
+       └── 002_create_orders.sql
+   ```
+
+   Cada arquivo `.sql` pode conter múltiplos comandos separados por `;`, além de comentários (`--`, `#`, `/* ... */`):
+   ```sql
+   -- database/migrations/001_create_users.sql
+   CREATE TABLE users (
+       id INTEGER PRIMARY KEY,
+       full_name VARCHAR(150) NOT NULL,
+       email VARCHAR(255) NOT NULL UNIQUE
+   );
+
+   CREATE INDEX idx_users_email ON users (email);
+   ```
+
+2. Para uso via CLI, tenha um arquivo de bootstrap (por padrão `bootstrap.php` na raiz do projeto) que registre a conexão no `Config`:
+   ```php
+   <?php
+   // bootstrap.php
+   declare(strict_types=1);
+
+   require_once __DIR__ . '/vendor/autoload.php';
+
+   use Lumynus\Lumy\Config;
+
+   Config::setConnection(
+       connectionIdentifier: 'default',
+       driver: 'postgresql',
+       host: '127.0.0.1:5432',
+       user: 'postgres',
+       password: getenv('DB_PASSWORD') ?: 'secret',
+       database: 'minha_aplicacao',
+       migrationsPath: __DIR__ . '/database/migrations' // opcional (padrão já é database/migrations)
+   );
+   ```
+
+---
+
+### 11.2. Todas as Formas de Executar as Migrations
+
+Você pode rodar suas migrations tanto **via Terminal (CLI)** quanto **via Código PHP (Programático)**:
+
+#### Forma 1: Via CLI Padrão (usando `bootstrap.php` e a pasta configurada)
+Se o seu `bootstrap.php` está na raiz do projeto, basta informar o identificador da conexão (`default`):
 ```bash
-php bin/migrate.php <connectionIdentifier> [bootstrap.php] [migrations-directory]
-```
-Exemplo:
-```bash
-php bin/migrate.php default bootstrap.php database/migrations
+# Quando estiver no próprio repositório do Lumy:
+php bin/migrate.php default
+
+# Quando instalado via Composer na sua aplicação:
+php vendor/lumynus/lumy/bin/migrate.php default
 ```
 
-### Via Código PHP
+#### Forma 2: Via CLI com Arquivo de Bootstrap Personalizado (2º argumento)
+Se a sua aplicação registra as conexões de banco em outro arquivo (ex.: `config/database.php` ou `bootstrap/app.php`), passe o caminho dele como **2º argumento**:
+```bash
+php bin/migrate.php default config/database.php
+```
+
+#### Forma 3: Via CLI Sobrescrevendo a Pasta de Migrations (3º argumento)
+Para executar migrations de uma pasta específica (ex.: um módulo isolado, banco de auditoria ou *hotfix*), informe o diretório como **3º argumento**:
+```bash
+php bin/migrate.php audit config/database.php database/migrations/audit
+```
+
+> **Sintaxe completa do CLI:**
+> ```bash
+> php bin/migrate.php <connectionIdentifier> [caminho/do/bootstrap.php] [caminho/da/pasta-migrations]
+> ```
+> **Saída e códigos de retorno (ideal para CI/CD e Docker):**
+> - Imprime `Applied: 001_create_users.sql` para cada arquivo novo ou `No pending migrations.` caso tudo já esteja atualizado;
+> - Código `0`: sucesso; Código `1`: erro ao conectar ou executar SQL; Código `2`: argumentos inválidos ou bootstrap não encontrado.
+
+#### Forma 4: Via Atalho no `composer.json` (Composer Scripts)
+Adicione scripts no `composer.json` do seu projeto para rodar com um único comando:
+```json
+{
+    "scripts": {
+        "migrate": "php vendor/lumynus/lumy/bin/migrate.php default bootstrap.php",
+        "migrate:audit": "php vendor/lumynus/lumy/bin/migrate.php audit bootstrap.php database/migrations/audit"
+    }
+}
+```
+E execute no terminal:
+```bash
+composer migrate
+composer migrate:audit
+```
+
+#### Forma 5: Via Código PHP (Usando a Pasta Definida no `Config`)
+Se você definiu `migrationsPath` ao registrar a conexão no `Config`, basta instanciar `Migrations` passando apenas o `connectionIdentifier` e chamar `run()`:
+```php
+use Lumynus\Lumy\Config;
+use Lumynus\Lumy\Migrations;
+
+Config::setConnection(
+    connectionIdentifier: 'default',
+    driver: 'sqlite',
+    database: __DIR__ . '/storage/database.sqlite',
+    migrationsPath: __DIR__ . '/database/migrations'
+);
+
+$runner = new Migrations('default');
+$appliedFiles = $runner->run(); // Retorna array com os nomes dos arquivos aplicados (ex.: ['001_create_users.sql'])
+```
+
+#### Forma 6: Via Código PHP (Informando a Pasta Diretamente no Construtor)
+Ideal para testes automatizados, instaladores web, *multi-tenancy* ou execução dinâmica sem depender do `migrationsPath` do `Config`:
 ```php
 use Lumynus\Lumy\Migrations;
 
@@ -666,14 +770,26 @@ $runner = new Migrations(
     connectionIdentifier: 'default',
     migrationsDirectory: __DIR__ . '/database/migrations'
 );
+
 $appliedFiles = $runner->run();
+// Na 1ª execução: ['001_create_users.sql', '002_create_orders.sql']
+// Na 2ª execução: [] (idempotente — ignora arquivos já registrados em lumy_migrations)
 ```
 
-**Destaques do Runner de Migrations:**
-- Suporta múltiplos statements separados por `;` no mesmo arquivo `.sql`;
-- Parser inteligente que respeita strings, escapes, comentários (`--`, `#`, `/* ... */`) e blocos dollar-quoted do PostgreSQL (`$$ ... $$`);
-- Execução em transação por arquivo nos bancos que suportam DDL transacional (SQLite, PostgreSQL, SQL Server, Firebird);
-- **Lock global de concorrência por pasta de migrations**: `GET_LOCK` (MySQL/MariaDB), `pg_try_advisory_lock` (PostgreSQL) e `sp_getapplock` (SQL Server).
+---
+
+### 11.3. Ordem de Prioridade da Pasta e Recursos de Segurança das Migrations
+
+O Lumy resolve qual pasta de migrations usar nesta ordem:
+1. O diretório passado explicitamente em `new Migrations($id, $migrationsDirectory)` (ou 3º argumento do CLI);
+2. O `migrationsPath` configurado em `Config::setConnection(...)` para aquela conexão;
+3. A pasta padrão `database/migrations/`.
+
+**Segurança e Concorrência no Runner:**
+- **Idempotência Garantida:** Cria e consulta automaticamente a tabela `lumy_migrations` no dialeto do banco conectado;
+- **Parser SQL Completo:** Separa múltiplos statements por `;` sem quebrar strings com ponto-e-vírgula, comentários ou blocos `$$ ... $$` de funções/triggers do PostgreSQL;
+- **Transação por Arquivo:** Em SQLite, PostgreSQL, SQL Server e Firebird, cada arquivo `.sql` roda dentro de uma transação isolada (se um statement falhar, o arquivo inteiro sofre rollback);
+- **Lock Global contra Execução Concorrente:** Impede que dois containers/processos apliquem as mesmas migrations simultaneamente no deploy usando `GET_LOCK` (MySQL/MariaDB), `pg_try_advisory_lock` (PostgreSQL) e `sp_getapplock` (SQL Server).
 
 ---
 
@@ -717,16 +833,6 @@ php tests/example1.php
 - 📦 [Referência de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
 
 ---
-
-<div align="center">
-
-**Documentação Oficial do Lumy:** [https://lumy.lumynus.dev/](https://lumy.lumynus.dev/)  
-**Ecossistema Lumynus Framework:** [https://lumynus.dev/](https://lumynus.dev/)
-
-Desenvolvido com foco em simplicidade, performance e elegância por **Weleny Santos** & **Lumynus**.  
-Distribuído sob a **Licença MIT**.
-
-</div>
 
 <div align="center">
 
