@@ -193,18 +193,26 @@ abstract class AbstractModel extends AbstractLumy
 				throw new \InvalidArgumentException("Unknown relationship '{$name}'.");
 			}
 			$localKey = $relationship['localKey'] ?? 'id';
-			$extraSelect[$localKey] ??= '__lumy_relation_' . count($extraSelect);
+			$extraSelect[$localKey] ??= 'lumy_rel_key_' . count($extraSelect);
 		}
 
 		$select = $this->buildProjection($fielders, $camelCaseTransform, $extraSelect);
 		$from = $table . ($this->alias !== '' ? ' ' . $this->validateIdentifier($this->alias) : '');
 		$joins = $this->joins === null ? '' : implode(' ', $this->joins);
-		[$whereSql, $params] = $this->buildSelectWhere($filters, $camelCaseTransform);
+		[$whereSql, $whereParams, $havingSql, $havingParams] = $this->buildSelectWhere($filters, $camelCaseTransform);
+		$params = [...$whereParams, ...$havingParams];
 		$groupBy = $this->buildGroupBy($camelCaseTransform);
 		$orderBySql = $this->buildOrderBy($orderBy, $camelCaseTransform, $limit !== null);
 
 		if ($withCount && $limit !== null) {
-			$totalRecords = $this->countSelectRecords($from, $joins, $whereSql, $params, $groupBy);
+			$totalRecords = $this->countSelectRecords(
+				$from,
+				$joins,
+				$whereSql,
+				$havingSql,
+				$params,
+				$groupBy
+			);
 		}
 
 		if ($limit === 0) {
@@ -220,6 +228,9 @@ abstract class AbstractModel extends AbstractLumy
 		}
 		if ($groupBy !== '') {
 			$sql .= " GROUP BY {$groupBy}";
+		}
+		if ($havingSql !== '') {
+			$sql .= " HAVING {$havingSql}";
 		}
 		if ($orderBySql !== '') {
 			$sql .= " ORDER BY {$orderBySql}";
@@ -282,6 +293,7 @@ abstract class AbstractModel extends AbstractLumy
 		string $from,
 		string $joins,
 		string $whereSql,
+		string $havingSql,
 		array $params,
 		string $groupBy
 	): int {
@@ -293,10 +305,12 @@ abstract class AbstractModel extends AbstractLumy
 			$baseSql .= " WHERE {$whereSql}";
 		}
 
-		if ($groupBy !== '') {
-			$countSql = "SELECT COUNT(*) AS __lumy_total FROM (SELECT 1 AS __lumy_g{$baseSql} GROUP BY {$groupBy}) __lumy_cnt";
+		if ($groupBy !== '' || $havingSql !== '') {
+			$groupClause = $groupBy !== '' ? " GROUP BY {$groupBy}" : '';
+			$havingClause = $havingSql !== '' ? " HAVING {$havingSql}" : '';
+			$countSql = "SELECT COUNT(*) AS lumy_total_count FROM (SELECT 1 AS lumy_grp_col{$baseSql}{$groupClause}{$havingClause}) lumy_cnt_tbl";
 		} else {
-			$countSql = "SELECT COUNT(*) AS __lumy_total{$baseSql}";
+			$countSql = "SELECT COUNT(*) AS lumy_total_count{$baseSql}";
 		}
 
 		$result = $this->customQuery($countSql, $params);
@@ -305,8 +319,8 @@ abstract class AbstractModel extends AbstractLumy
 		}
 
 		$firstRow = $result[0];
-		$total = $firstRow['__lumy_total']
-			?? $firstRow['__LUMY_TOTAL']
+		$total = $firstRow['lumy_total_count']
+			?? $firstRow['LUMY_TOTAL_COUNT']
 			?? reset($firstRow);
 
 		return is_numeric($total) ? (int) $total : 0;
@@ -360,23 +374,32 @@ abstract class AbstractModel extends AbstractLumy
 		return $select;
 	}
 
-	/** @param array<string, mixed> $filters @return array{string, list<mixed>} */
+	/** @param array<string, mixed> $filters @return array{string, list<mixed>, string, list<mixed>} */
 	private function buildSelectWhere(array $filters, bool $camelCaseTransform): array
 	{
-		$parts = [];
-		$params = [];
+		$whereParts = [];
+		$whereParams = [];
+		$havingParts = [];
+		$havingParams = [];
+
 		foreach ($filters as $expression => $value) {
 			if (!is_string($expression)) {
 				throw new \InvalidArgumentException('Filter keys must be strings.');
 			}
 
 			$orParts = [];
+			$orParams = [];
+			$isAggregateGroup = false;
+
 			foreach (preg_split('/\s*\|\|\s*/', $expression) ?: [] as $columnExpression) {
 				[$logical, $operator] = $this->parseFilterExpression(trim($columnExpression));
 				$column = $this->resolveField(
 					$this->normalizeFieldName($logical, $camelCaseTransform),
 					true
 				);
+				if (preg_match('/\b(COUNT|SUM|AVG|MIN|MAX)\s*\(/i', $column)) {
+					$isAggregateGroup = true;
+				}
 
 				if ($value === null) {
 					if ($operator === '=' || $operator === 'IS') {
@@ -404,7 +427,7 @@ abstract class AbstractModel extends AbstractLumy
 							throw new \InvalidArgumentException("{$operator} requires two values.");
 						}
 						$orParts[] = "{$column} {$operator} ? AND ?";
-						$params = [...$params, ...array_values($value)];
+						$orParams = [...$orParams, ...array_values($value)];
 						continue;
 					}
 					if (!in_array($operator, ['=', '!=', '<>', 'IN', 'NOT IN'], true)) {
@@ -413,7 +436,7 @@ abstract class AbstractModel extends AbstractLumy
 					$inOperator = in_array($operator, ['!=', '<>', 'NOT IN'], true) ? 'NOT IN' : 'IN';
 					$marks = implode(', ', array_fill(0, count($value), '?'));
 					$orParts[] = "{$column} {$inOperator} ({$marks})";
-					$params = [...$params, ...array_values($value)];
+					$orParams = [...$orParams, ...array_values($value)];
 					continue;
 				}
 
@@ -432,18 +455,30 @@ abstract class AbstractModel extends AbstractLumy
 					$strVal = (string) $value;
 					$isPattern = str_contains($strVal, '%');
 					$orParts[array_key_last($orParts)] .= $this->likeEscapeClause();
-					$params[] = $isPattern
+					$orParams[] = $isPattern
 						? self::escapeLikeBackslashes($strVal)
 						: '%' . self::escapeLikeLiterals($strVal) . '%';
 				} else {
-					$params[] = $value;
+					$orParams[] = $value;
 				}
 			}
 
-			$parts[] = count($orParts) > 1 ? '(' . implode(' OR ', $orParts) . ')' : $orParts[0];
+			$clause = count($orParts) > 1 ? '(' . implode(' OR ', $orParts) . ')' : $orParts[0];
+			if ($isAggregateGroup) {
+				$havingParts[] = $clause;
+				$havingParams = [...$havingParams, ...$orParams];
+			} else {
+				$whereParts[] = $clause;
+				$whereParams = [...$whereParams, ...$orParams];
+			}
 		}
 
-		return [implode(' AND ', $parts), $params];
+		return [
+			implode(' AND ', $whereParts),
+			$whereParams,
+			implode(' AND ', $havingParts),
+			$havingParams,
+		];
 	}
 
 	/** @return array{string, string} */
@@ -664,7 +699,7 @@ abstract class AbstractModel extends AbstractLumy
 
 			$connectionIdentifier = $definition['connectionIdentifier'] ?? $this->connectionIdentifier;
 			$related = new $modelClass($connectionIdentifier);
-			$relatedAlias = '__lumy_foreign_' . preg_replace('/[^A-Za-z0-9_]/', '_', $name);
+			$relatedAlias = 'lumy_fk_key_' . preg_replace('/[^A-Za-z0-9_]/', '_', $name);
 			$relatedRows = $related->runSelect(
 				[$foreignKey => $ids],
 				'',

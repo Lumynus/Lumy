@@ -455,14 +455,16 @@ assertSameValue(
     'DSN Firebird com host:porta deve converter para host/porta:database'
 );
 
-// Verifica geracao de SQL de paginacao e LIKE ESCAPE em cada dialeto (mysql, pgsql, sqlsrv, firebird, sqlite)
+// Verifica geracao de SQL de paginacao, COUNT(*), filtros e ORDER BY em cada dialeto (mysql, pgsql, sqlsrv, firebird, sqlite)
 class DialectRecorderDriver implements DatabaseDriverInterface
 {
     public string $lastQuery = '';
     /** @var list<mixed> */
     public array $lastParams = [];
+    /** @var list<array{query: string, params: list<mixed>}> */
+    public array $history = [];
 
-    public function __construct(private string $driverName)
+    public function __construct(private string $driverName, private int $simulatedTotal = 25)
     {
     }
 
@@ -470,6 +472,11 @@ class DialectRecorderDriver implements DatabaseDriverInterface
     {
         $this->lastQuery = $query;
         $this->lastParams = $params;
+        $this->history[] = ['query' => $query, 'params' => $params];
+
+        if (str_contains($query, 'lumy_total_count')) {
+            return [['lumy_total_count' => $this->simulatedTotal]];
+        }
 
         return [];
     }
@@ -492,43 +499,147 @@ class DialectRecorderDriver implements DatabaseDriverInterface
     public function getThreadId(): ?int { return 1; }
 }
 
-function inspectDialectQuery(string $driverName, callable $action): array
+/**
+ * @return array{0: string, 1: list<mixed>, 2: list<array{query: string, params: list<mixed>}>, 3: mixed}
+ */
+function inspectDialectQuery(string $driverName, callable $action, int $simulatedTotal = 25): array
 {
-    $recorder = new DialectRecorderDriver($driverName);
+    $recorder = new DialectRecorderDriver($driverName, $simulatedTotal);
     $model = new Model('items');
-    $prop = new ReflectionProperty( Lumynus\Lumy\AbstractLumy::class, 'modelConnection');
+    $prop = new ReflectionProperty(Lumynus\Lumy\AbstractLumy::class, 'modelConnection');
     $prop->setValue($model, $recorder);
-    $action($model);
+    $result = $action($model);
 
-    return [$recorder->lastQuery, $recorder->lastParams];
+    return [$recorder->lastQuery, $recorder->lastParams, $recorder->history, $result];
 }
 
-[$sqlSrvQuery] = inspectDialectQuery('sqlsrv', static fn (Model $m) => $m->select(offset: 20, limit: 10));
+[$sqlSrvQuery, , $sqlSrvHistory, $sqlSrvResult] = inspectDialectQuery(
+    'sqlsrv',
+    static fn (Model $m) => $m->select(
+        filters: ['status' => 'active', 'price >=' => 100],
+        orderBy: ['created_at' => 'DESC', 'id' => 'ASC'],
+        page: 3,
+        perPage: 10
+    ),
+    25
+);
 assertSameValue(
-    'SELECT * FROM items ORDER BY (SELECT NULL) OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY',
+    'SELECT COUNT(*) AS lumy_total_count FROM items WHERE status = ? AND price >= ?',
+    $sqlSrvHistory[0]['query'],
+    'SQL Server COUNT(*) nao deve incluir ORDER BY e deve aplicar os mesmos filtros WHERE'
+);
+assertSameValue(
+    ['active', 100],
+    $sqlSrvHistory[0]['params'],
+    'SQL Server COUNT(*) deve receber os parametros do filtro'
+);
+assertSameValue(
+    'SELECT * FROM items WHERE status = ? AND price >= ? ORDER BY created_at DESC, id ASC OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY',
     $sqlSrvQuery,
-    'SQL Server deve paginar com OFFSET ... ROWS FETCH NEXT ... ROWS ONLY'
+    'SQL Server deve paginar com WHERE + ORDER BY + OFFSET ... ROWS FETCH NEXT ... ROWS ONLY'
+);
+assertSameValue(
+    [
+        'currentPage'  => 3,
+        'previousPage' => 2,
+        'perPage'      => 10,
+        'nextPage'     => 3,
+        'totalRecords' => 25,
+        'totalPages'   => 3,
+    ],
+    $sqlSrvResult['meta'],
+    'SQL Server deve calcular meta de paginacao corretamente'
 );
 
-[$firebirdQuery] = inspectDialectQuery('firebird', static fn (Model $m) => $m->select(offset: 10, limit: 5));
+[$firebirdQuery, , $firebirdHistory] = inspectDialectQuery(
+    'firebird',
+    static fn (Model $m) => $m->select(
+        filters: ['status' => 'active'],
+        orderBy: 'name ASC',
+        offset: 10,
+        limit: 5
+    )
+);
 assertSameValue(
-    'SELECT * FROM items ORDER BY 1 ROWS 11 TO 15',
+    'SELECT COUNT(*) AS lumy_total_count FROM items WHERE status = ?',
+    $firebirdHistory[0]['query'],
+    'Firebird COUNT(*) deve usar alias iniciado por letra (lumy_total_count) e aplicar WHERE'
+);
+assertSameValue(
+    'SELECT * FROM items WHERE status = ? ORDER BY name ASC ROWS 11 TO 15',
     $firebirdQuery,
-    'Firebird deve paginar com ROWS m TO n'
+    'Firebird deve paginar com WHERE + ORDER BY + ROWS m TO n'
 );
 
-[$mysqlQuery] = inspectDialectQuery('mysql', static fn (Model $m) => $m->select(filters: ['name LIKE' => '50%'], offset: 0, limit: 5));
+[$mysqlQuery, , $mysqlHistory] = inspectDialectQuery(
+    'mysql',
+    static fn (Model $m) => $m->select(
+        filters: ['name LIKE' => '50%'],
+        orderBy: 'id DESC',
+        offset: 0,
+        limit: 5
+    )
+);
 assertSameValue(
-    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\\\' ORDER BY 1 LIMIT 5 OFFSET 0",
+    "SELECT COUNT(*) AS lumy_total_count FROM items WHERE name LIKE ? ESCAPE '\\\\'",
+    $mysqlHistory[0]['query'],
+    'MySQL COUNT(*) deve aplicar o mesmo ESCAPE dobrado do SELECT'
+);
+assertSameValue(
+    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\\\' ORDER BY id DESC LIMIT 5 OFFSET 0",
     $mysqlQuery,
-    'MySQL deve usar ESCAPE dobrado e LIMIT/OFFSET'
+    'MySQL deve usar ESCAPE dobrado, ORDER BY e LIMIT/OFFSET'
 );
 
-[$pgsqlQuery] = inspectDialectQuery('pgsql', static fn (Model $m) => $m->select(filters: ['name LIKE' => '50%'], offset: 0, limit: 5));
-assertSameValue(
-    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\' ORDER BY 1 LIMIT 5 OFFSET 0",
-    $pgsqlQuery,
-    'PostgreSQL deve usar ESCAPE simples e LIMIT/OFFSET'
+[$pgsqlQuery, , $pgsqlHistory] = inspectDialectQuery(
+    'pgsql',
+    static fn (Model $m) => $m->select(
+        filters: ['name LIKE' => '50%'],
+        orderBy: ['name' => 'ASC'],
+        offset: 0,
+        limit: 5
+    )
 );
+assertSameValue(
+    "SELECT COUNT(*) AS lumy_total_count FROM items WHERE name LIKE ? ESCAPE '\\'",
+    $pgsqlHistory[0]['query'],
+    'PostgreSQL COUNT(*) deve aplicar o mesmo ESCAPE simples do SELECT'
+);
+assertSameValue(
+    "SELECT * FROM items WHERE name LIKE ? ESCAPE '\\' ORDER BY name ASC LIMIT 5 OFFSET 0",
+    $pgsqlQuery,
+    'PostgreSQL deve usar ESCAPE simples, ORDER BY e LIMIT/OFFSET'
+);
+
+// Teste de GROUP BY + filtro de agregacao (HAVING) + ORDER BY em coluna agregada no SQLite real
+class AuthorPostStatsModel extends AbstractModel
+{
+    protected string $table = 'authors';
+    protected string $alias = 'a';
+    protected ?array $joins = [
+        'INNER JOIN posts p ON p.author_id = a.id',
+    ];
+    protected array $groupBy = ['a.id', 'a.full_name'];
+    protected array $fields = [
+        'author_id'   => ['db' => 'a.id', 'select' => true],
+        'full_name'   => ['db' => 'a.full_name', 'select' => true],
+        'total_posts' => ['db' => 'COUNT(p.id)', 'select' => true],
+        'total_views' => ['db' => 'SUM(p.views_count)', 'select' => true],
+    ];
+}
+
+(new PostModel())->insert(['author_id' => $anaId, 'post_title' => 'Segundo Post', 'views_count' => 80]);
+(new PostModel())->insert(['author_id' => $brunoId, 'post_title' => 'Post do Bruno', 'views_count' => 30]);
+
+$statsModel = new AuthorPostStatsModel();
+$groupedFiltered = $statsModel->select(
+    filters: ['total_posts >=' => 2],
+    orderBy: 'total_views DESC',
+    camelCaseTransform: true
+);
+assertSameValue(1, count($groupedFiltered['data']), 'Filtro em campo agregado (COUNT/SUM) deve ir para HAVING e filtrar grupos');
+assertSameValue(1, $groupedFiltered['meta']['totalRecords'], 'COUNT(*) com GROUP BY + HAVING deve contar apenas os grupos filtrados');
+assertSameValue('Ana Maria Silva', $groupedFiltered['data'][0]['fullName'], 'Grupo retornado pelo HAVING deve ser Ana Maria Silva (2 posts)');
+assertSameValue(200, (int) $groupedFiltered['data'][0]['totalViews'], 'Soma de views da Ana deve ser 200');
 
 echo "Todos os testes do Lumy (incluindo os 5 dialetos e transaction global) executados com sucesso!" . PHP_EOL;
