@@ -103,34 +103,39 @@ $user = (new Model('users'))->get(
 Em uma subclasse de `AbstractModel`, você também pode usar `$this->getOne(...)`
 dentro dos métodos de domínio da sua Model ou `select(limit: 1)`.
 
-## Consultar vários registros
+## Consultar vários registros (`select`)
 
-`select()` executa imediatamente e retorna uma lista de registros. Os
-argumentos recomendados são nomeados para deixar claro o papel de cada um:
+Tanto em `Model` quanto em `AbstractModel`, `select()` retorna um array padronizado em inglês com duas chaves principais: `data` (os registros da página atual) e `meta` (os metadados calculados da paginação):
 
 ```php
-$users = $userModel->select(
+$result = $userModel->select(
     filters: ['dataCadastro >=' => '2026-01-01'],
     orderBy: 'dataCadastro DESC',
-    offset: 0,
-    limit: 10,
+    page: 1,
+    perPage: 10,
     fielders: ['id', 'nome', 'dataCadastro'],
     camelCaseTransform: true
 );
+
+// Estrutura retornada:
+// [
+//     'data' => [ ... ],
+//     'meta' => [
+//         'currentPage'  => 1,
+//         'previousPage' => 1,
+//         'perPage'      => 10,
+//         'nextPage'     => 2,
+//         'totalRecords' => 15000,
+//         'totalPages'   => 1500,
+//     ],
+// ]
 ```
 
-Com um mapa `$fields`, apenas os campos marcados com `select => true` são
-retornados quando `fielders` não é informado. `fielders` escolhe um subconjunto
-desse mapa; um campo inexistente no mapa é rejeitado. Sem mapa `$fields`, a
-consulta seleciona todas as colunas, ou apenas as indicadas em `fielders`.
+Se você não informar parâmetros de paginação (`page`, `perPage`, `limit` ou `offset`), o `select()` usa por padrão **página `1`** (`currentPage = 1`) e **`100` registros por página** (`perPage = 100`), consultando automaticamente o total de registros (`totalRecords`) e calculando `previousPage`, `nextPage` e `totalPages`.
 
-`offset` é a quantidade de linhas a ignorar e `limit` é a quantidade máxima de
-linhas. `limit: null` desativa o limite. Quando há paginação sem `orderBy`, o
-modelo usa uma ordem estável: `id ASC` quando o campo `id` faz parte do mapa,
-a primeira coluna mapeada quando existe um mapa `$fields`, a primeira coluna do
-`groupBy` quando há agrupamento e, sem nada disso, a primeira coluna projetada
-(`ORDER BY 1`; no SQL Server, `ORDER BY (SELECT NULL)`). Um `limit` igual a zero
-retorna uma lista vazia.
+Você pode paginar tanto com `page` e `perPage` quanto com `offset` e `limit`. Com um mapa `$fields`, apenas os campos marcados com `select => true` são retornados quando `fielders` não é informado. `fielders` escolhe um subconjunto desse mapa; um campo inexistente no mapa é rejeitado. Sem mapa `$fields`, a consulta seleciona todas as colunas, ou apenas as indicadas em `fielders`.
+
+`limit: null` desativa o limite. Quando há paginação sem `orderBy`, o modelo usa uma ordem estável: `id ASC` quando o campo `id` faz parte do mapa, a primeira coluna mapeada quando existe um mapa `$fields`, a primeira coluna do `groupBy` quando há agrupamento e, sem nada disso, a primeira coluna projetada (`ORDER BY 1`; no SQL Server, `ORDER BY (SELECT NULL)`). Um `limit` igual a zero retorna `data: []`.
 
 ## CamelCase
 

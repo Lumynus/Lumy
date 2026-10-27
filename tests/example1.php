@@ -197,20 +197,32 @@ $result = $authors->select(
     ]
 );
 
-assertSameValue('Ana Maria Silva', $result[0]['fullName'], 'Upsert + camelCaseTransform deve atualizar e converter fullName');
-assertSameValue('Arquiteta de Software', $result[0]['profile']['bioText'], 'Relacionamento 1:1 deve coexistir com 1:N na mesma localKey');
-assertSameValue('Excelente artigo!', $result[0]['posts'][0]['comments'][0]['commentBody'], 'Relacionamento aninhado deve carregar comments');
-assertSameValue(false, isset($result[0]['posts'][0]['_LumyForeignPosts']), 'Chave interna de relacionamento nao pode vazar com camelCaseTransform');
+assertSameValue('Ana Maria Silva', $result['data'][0]['fullName'], 'Upsert + camelCaseTransform deve atualizar e converter fullName');
+assertSameValue('Arquiteta de Software', $result['data'][0]['profile']['bioText'], 'Relacionamento 1:1 deve coexistir com 1:N na mesma localKey');
+assertSameValue('Excelente artigo!', $result['data'][0]['posts'][0]['comments'][0]['commentBody'], 'Relacionamento aninhado deve carregar comments');
+assertSameValue(false, isset($result['data'][0]['posts'][0]['_LumyForeignPosts']), 'Chave interna de relacionamento nao pode vazar com camelCaseTransform');
+assertSameValue(
+    [
+        'currentPage' => 1,
+        'previousPage' => 1,
+        'perPage' => 100,
+        'nextPage' => 1,
+        'totalRecords' => 1,
+        'totalPages' => 1,
+    ],
+    $result['meta'],
+    'select() sem paginacao deve usar padrao perPage=100 e currentPage=1 no meta'
+);
 
 // 3. Filtros (LIKE, NOT LIKE, NULL, IN, BETWEEN, OR)
 $likeRows = $authors->select(filters: ['fullName LIKE' => 'Maria'], camelCaseTransform: true);
-assertSameValue(1, count($likeRows), 'Filtro LIKE deve encontrar Ana Maria');
+assertSameValue(1, count($likeRows['data']), 'Filtro LIKE deve encontrar Ana Maria');
 
 $notLikeRows = $authors->select(filters: ['!fullName LIKE' => 'Maria'], camelCaseTransform: true);
-assertSameValue(1, count($notLikeRows), 'Filtro !LIKE deve encontrar Bruno');
+assertSameValue(1, count($notLikeRows['data']), 'Filtro !LIKE deve encontrar Bruno');
 
 $nullRows = $authors->select(filters: ['emailAddress' => null], camelCaseTransform: true);
-assertSameValue($brunoId, $nullRows[0]['id'], 'Filtro IS NULL deve encontrar Bruno');
+assertSameValue($brunoId, $nullRows['data'][0]['id'], 'Filtro IS NULL deve encontrar Bruno');
 
 // 4. Transações via método e via função global transaction($transaction, $rollback)
 assertThrows(RuntimeException::class, function () use ($authors): void {
@@ -268,10 +280,10 @@ assertThrows(InvalidArgumentException::class, function () use ($authors): void {
 
 // 6. LIKE literal: curingas digitados pelo usuario devem casar literalmente
 $underscoreRows = $authors->select(filters: ['fullName LIKE' => 'A_a'], camelCaseTransform: true);
-assertSameValue(0, count($underscoreRows), 'Underscore literal nao pode casar "Ana" (bug de escape)');
+assertSameValue(0, count($underscoreRows['data']), 'Underscore literal nao pode casar "Ana" (bug de escape)');
 
 $wildcardRows = $authors->select(filters: ['fullName LIKE' => '%Maria%'], camelCaseTransform: true);
-assertSameValue(1, count($wildcardRows), 'Coringa % digitado pelo usuario ainda deve funcionar');
+assertSameValue(1, count($wildcardRows['data']), 'Coringa % digitado pelo usuario ainda deve funcionar');
 
 // 7. DateTimeInterface no binding nao pode causar fatal
 $ts = $authors->rawQuery('SELECT ? AS ts', [new DateTimeImmutable('2026-10-19 12:00:00')]);
@@ -323,15 +335,39 @@ $innerRow = (new Model('authors'))->get(['email_address' => 'inner@lumy.dev']);
 assertSameValue(true, is_array($outerRow), 'Commit externo deve persistir o insert externo');
 assertSameValue(null, $innerRow, 'Rollback do savepoint interno deve desfazer o insert interno');
 
-// 10. Paginacao deterministica com campos mapeados
+// 10. Paginacao deterministica com campos mapeados e meta padronizado
 $page1 = $authors->select(orderBy: 'id ASC', offset: 0, limit: 2);
-$page2 = $authors->select(orderBy: 'id ASC', offset: 2, limit: 2);
-assertSameValue(true, count($page1) === 2, 'Pagina 1 deve retornar 2 registros');
+$page2 = $authors->select(orderBy: 'id ASC', page: 2, perPage: 2);
+assertSameValue(true, count($page1['data']) === 2, 'Pagina 1 deve retornar 2 registros');
+assertSameValue(
+    [
+        'currentPage' => 1,
+        'previousPage' => 1,
+        'perPage' => 2,
+        'nextPage' => 2,
+        'totalRecords' => 3,
+        'totalPages' => 2,
+    ],
+    $page1['meta'],
+    'Meta da pagina 1 deve calcular currentPage, previousPage, perPage, nextPage, totalRecords e totalPages'
+);
+assertSameValue(
+    [
+        'currentPage' => 2,
+        'previousPage' => 1,
+        'perPage' => 2,
+        'nextPage' => 2,
+        'totalRecords' => 3,
+        'totalPages' => 2,
+    ],
+    $page2['meta'],
+    'Meta da pagina 2 (ultima pagina) deve calcular currentPage=2, previousPage=1 e nextPage=2'
+);
 assertSameValue(
     [],
     array_intersect(
-        array_column($page1, 'id'),
-        array_column($page2, 'id')
+        array_column($page1['data'], 'id'),
+        array_column($page2['data'], 'id')
     ),
     'Paginas consecutivas nao podem se sobrepor'
 );

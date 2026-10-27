@@ -248,14 +248,16 @@ $user = $users->get(
 );
 // Resultado: ['id' => 1, 'fullName' => 'Ana Silva', 'email' => 'ana@lumynus.dev', 'status' => 'active']
 
-// 3. Buscar múltiplos registros com filtro e paginação
-$activeUsers = $users->select(
+// 3. Buscar múltiplos registros com filtro e paginação (retorna 'data' e 'meta')
+$result = $users->select(
     filters: ['status' => 'active'],
     orderBy: 'id DESC',
-    limit: 10,
-    offset: 0,
+    page: 1,
+    perPage: 10,
     camelCaseTransform: true
 );
+// $result['data'] -> registros da página
+// $result['meta'] -> ['currentPage' => 1, 'previousPage' => 1, 'perPage' => 10, 'nextPage' => 1, 'totalRecords' => 1, 'totalPages' => 1]
 ```
 
 ### Forma 2: Subclasse de `AbstractModel` (Recomendado para Domínio e APIs)
@@ -383,27 +385,71 @@ $deleted = $userModel->delete(
 
 ---
 
-## 🔍 6. Consultas, Paginação e Operadores de Filtro
+## 🔍 6. Consultas, Paginação Padronizada (`data` / `meta`) e Operadores de Filtro
 
-### 6.1. Buscando Vários Registros (`select`) e Registro Único (`get` / `getOne`)
+### 6.1. Formato de Retorno Padronizado do `select()`
+
+Tanto em `Model` quanto em qualquer subclasse de `AbstractModel`, o método `select()` retorna sempre uma estrutura padronizada em inglês contendo `data` (os registros da página) e `meta` (os metadados calculados automaticamente da paginação):
+
 ```php
-$rows = $userModel->select(
+[
+    'data' => [
+        ['id' => 1, 'fullName' => 'Ana Silva', 'email' => 'ana@lumynus.dev'],
+        // ...
+    ],
+    'meta' => [
+        'currentPage'  => 1,     // Página atual (padrão: 1)
+        'previousPage' => 1,     // Página anterior (se estiver na 1, mantém 1; se na 3, retorna 2)
+        'perPage'      => 10,    // Registros por página (padrão quando não informado: 100)
+        'nextPage'     => 2,     // Próxima página (calculada automaticamente até o limite de totalPages)
+        'totalRecords' => 15000, // Quantidade total de registros encontrados no banco (sem o LIMIT)
+        'totalPages'   => 1500,  // Total de páginas calculadas: ceil(totalRecords / perPage)
+    ],
+]
+```
+
+> **Paginação Padrão Automática (`perPage = 100` e `currentPage = 1`):**
+> Se você chamar `$model->select()` sem informar parâmetros de paginação (`page`, `perPage`, `limit` ou `offset`), o Lumy assume automaticamente **página `1`** e **`100` registros por página**, executa a contagem total no banco (`totalRecords`) e calcula todos os campos do `meta` para você!
+
+### 6.2. Como Paginar no `select()` (Por `page`/`perPage` ou `offset`/`limit`)
+
+Você pode paginar passando `page` e `perPage` (o `offset` é calculado automaticamente como `($page - 1) * $perPage`) ou passando `offset` e `limit`:
+
+```php
+// 1. Sem passar paginação -> assume automaticamente page: 1 e perPage: 100
+$result = $userModel->select(
+    filters: ['status' => 'active'],
+    camelCaseTransform: true
+);
+
+// 2. Paginando por número da página (page) e quantidade por página (perPage)
+$result = $userModel->select(
     filters: [
-        'status'                     => ['active', 'trial'],
-        'age BETWEEN'                => [18, 65],
+        'status'                      => ['active', 'trial'],
+        'age BETWEEN'                 => [18, 65],
         'fullName LIKE || email LIKE' => 'silva',
-        '!deletedAt'                 => null,
+        '!deletedAt'                  => null,
     ],
     orderBy: 'id DESC',
-    offset: 0,
-    limit: 20,
+    page: 2,                               // Calcula offset = 20 automaticamente!
+    perPage: 20,                           // Equivale a limit = 20
     fielders: ['id', 'fullName', 'email'], // Seleciona apenas estas colunas do mapa
     camelCaseTransform: true,              // Converte filtros e chaves do retorno para camelCase
     with: ['profile', 'orders']            // Carrega relacionamentos em lote
 );
+
+// 3. Paginando com offset e limit tradicionais (currentPage é calculado automaticamente)
+$result = $userModel->select(
+    offset: 40,
+    limit: 20 // currentPage será calculado como 3!
+);
+
+// Acessando os registros e os metadados:
+$rows = $result['data'];
+$meta = $result['meta'];
 ```
 
-### 6.2. Tabela Completa de Operadores (`select`, `update` e `delete`)
+### 6.3. Tabela Completa de Operadores (`select`, `update` e `delete`)
 
 | Sintaxe no Array de Filtro | SQL Produzido | Descrição |
 | :--- | :--- | :--- |

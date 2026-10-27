@@ -38,8 +38,8 @@ class WalletModel extends AbstractModel
 
     public function transfer(int $fromId, int $toId, float $amount): void
     {
-        $sender = $this->select(filters: ['id' => $fromId], limit: 1)[0] ?? null;
-        $receiver = $this->select(filters: ['id' => $toId], limit: 1)[0] ?? null;
+        $sender = $this->select(filters: ['id' => $fromId], limit: 1)['data'][0] ?? null;
+        $receiver = $this->select(filters: ['id' => $toId], limit: 1)['data'][0] ?? null;
 
         if ($sender === null || $receiver === null) {
             throw new RuntimeException('Carteira nao encontrada.');

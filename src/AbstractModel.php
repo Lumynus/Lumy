@@ -32,35 +32,101 @@ abstract class AbstractModel extends AbstractLumy
 	protected array $relationships = [];
 
 	/**
-	 * Executes a SELECT and returns its rows.
+	 * Executes a paginated SELECT and returns standardized data and pagination metadata.
+	 *
+	 * By default, when pagination arguments are omitted, selects page 1 with
+	 * 100 records per page (limit = 100, offset = 0).
 	 *
 	 * @param array<string, mixed> $filters Structured equality/operator filters.
 	 * @param string|array $orderBy Logical field and direction, e.g. "createdAt DESC".
-	* @param int $offset The number of result rows to skip.
-	* @param int|null $limit The maximum number of rows to return; null disables the limit.
-	* @param array<string>|null $fielders Logical fields to return; null selects fields marked with select=true.
-	* @param bool $camelCaseTransform Whether to convert input field names from camelCase to snake_case and result keys back.
-	* @param array $with Relationships to load, optionally including nested relationships.
-	 * @return array<int, array<string, mixed>>
+	 * @param int $offset The number of result rows to skip (calculated automatically when $page is provided).
+	 * @param int|null $limit The maximum number of rows per page (defaults to 100; null disables the limit).
+	 * @param array<string>|null $fielders Logical fields to return; null selects fields marked with select=true.
+	 * @param bool $camelCaseTransform Whether to convert input field names from camelCase to snake_case and result keys back.
+	 * @param array $with Relationships to load, optionally including nested relationships.
+	 * @param int|null $page Page number (1-based). When omitted, defaults to page 1 (or is derived from $offset and $limit).
+	 * @param int|null $perPage Records per page alias for $limit.
+	 * @return array{
+	 *     data: array<int, array<string, mixed>>,
+	 *     meta: array{
+	 *         currentPage: int,
+	 *         previousPage: int,
+	 *         perPage: int,
+	 *         nextPage: int,
+	 *         totalRecords: int,
+	 *         totalPages: int
+	 *     }
+	 * }
 	 */
 	public function select(
 		array $filters = [],
 		string|array $orderBy = '',
 		int $offset = 0,
-		?int $limit = 10,
+		?int $limit = 100,
 		?array $fielders = null,
 		bool $camelCaseTransform = false,
-		array $with = []
+		array $with = [],
+		?int $page = null,
+		?int $perPage = null
 	): array {
-		return $this->runSelect(
+		if ($perPage !== null) {
+			$limit = $perPage;
+		}
+
+		if ($page !== null) {
+			if ($page < 1) {
+				throw new \InvalidArgumentException('Page must be at least 1.');
+			}
+			if ($limit !== null && $limit > 0) {
+				$offset = ($page - 1) * $limit;
+			}
+		}
+
+		$totalRecords = 0;
+		$rows = $this->runSelect(
 			$filters,
 			$orderBy,
 			$offset,
 			$limit,
 			$fielders,
 			$camelCaseTransform,
-			$with
+			$with,
+			[],
+			[],
+			true,
+			$totalRecords
 		);
+
+		if ($limit === null) {
+			$perPageValue = $totalRecords > 0 ? $totalRecords : 100;
+			$currentPage = 1;
+			$totalPages = 1;
+		} elseif ($limit === 0) {
+			$perPageValue = 0;
+			$currentPage = $page ?? 1;
+			$totalPages = 0;
+		} else {
+			$perPageValue = $limit;
+			$currentPage = $page ?? ((int) floor($offset / $limit) + 1);
+			$totalPages = $totalRecords > 0 ? (int) ceil($totalRecords / $perPageValue) : 1;
+		}
+
+		$previousPage = $currentPage > 1 ? $currentPage - 1 : 1;
+		$nextPage = $totalPages > 0 && $currentPage < $totalPages
+			? $currentPage + 1
+			: max(1, $totalPages);
+
+		return [
+			'data' => $rows,
+			'meta' => [
+				'currentPage' => $currentPage,
+				'previousPage' => $previousPage,
+				'perPage' => $perPageValue,
+				'nextPage' => $nextPage,
+				'totalRecords' => $totalRecords,
+				'totalPages' => $totalPages,
+			],
+		];
 	}
 
 	/**
@@ -108,14 +174,13 @@ abstract class AbstractModel extends AbstractLumy
 		bool $camelCaseTransform,
 		array $with,
 		array $extraSelect = [],
-		array $preserveExtra = []
+		array $preserveExtra = [],
+		bool $withCount = false,
+		int &$totalRecords = 0
 	): array {
 		$table = $this->getModelTable();
 		if ($offset < 0 || ($limit !== null && $limit < 0)) {
 			throw new \InvalidArgumentException('Offset and limit cannot be negative.');
-		}
-		if ($limit === 0) {
-			return [];
 		}
 		if ($limit === null && $offset > 0) {
 			throw new \InvalidArgumentException('Offset requires a limit.');
@@ -138,6 +203,14 @@ abstract class AbstractModel extends AbstractLumy
 		$groupBy = $this->buildGroupBy($camelCaseTransform);
 		$orderBySql = $this->buildOrderBy($orderBy, $camelCaseTransform, $limit !== null);
 
+		if ($withCount && $limit !== null) {
+			$totalRecords = $this->countSelectRecords($from, $joins, $whereSql, $params, $groupBy);
+		}
+
+		if ($limit === 0) {
+			return [];
+		}
+
 		$sql = "SELECT {$select} FROM {$from}";
 		if ($joins !== '') {
 			$sql .= " {$joins}";
@@ -155,6 +228,14 @@ abstract class AbstractModel extends AbstractLumy
 
 		$rows = $this->customQuery($sql, $params);
 		if (!is_array($rows)) {
+			$rows = [];
+		}
+
+		if ($withCount && $limit === null) {
+			$totalRecords = count($rows);
+		}
+
+		if ($rows === []) {
 			return [];
 		}
 
@@ -190,6 +271,45 @@ abstract class AbstractModel extends AbstractLumy
 		unset($row);
 
 		return $rows;
+	}
+
+	/**
+	 * Counts total matching records before pagination for select() metadata.
+	 *
+	 * @param list<mixed> $params
+	 */
+	private function countSelectRecords(
+		string $from,
+		string $joins,
+		string $whereSql,
+		array $params,
+		string $groupBy
+	): int {
+		$baseSql = " FROM {$from}";
+		if ($joins !== '') {
+			$baseSql .= " {$joins}";
+		}
+		if ($whereSql !== '') {
+			$baseSql .= " WHERE {$whereSql}";
+		}
+
+		if ($groupBy !== '') {
+			$countSql = "SELECT COUNT(*) AS __lumy_total FROM (SELECT 1 AS __lumy_g{$baseSql} GROUP BY {$groupBy}) __lumy_cnt";
+		} else {
+			$countSql = "SELECT COUNT(*) AS __lumy_total{$baseSql}";
+		}
+
+		$result = $this->customQuery($countSql, $params);
+		if (!is_array($result) || !isset($result[0]) || !is_array($result[0])) {
+			return 0;
+		}
+
+		$firstRow = $result[0];
+		$total = $firstRow['__lumy_total']
+			?? $firstRow['__LUMY_TOTAL']
+			?? reset($firstRow);
+
+		return is_numeric($total) ? (int) $total : 0;
 	}
 
 	/** @param array<string>|null $fielders @param array<string, string> $extraSelect */
