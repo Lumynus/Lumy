@@ -2,6 +2,7 @@
     "name": "lumynus/lumy",
     "description": "MicroORM from Lumynus",
     "type": "library",
+    "license": "MIT",
     "bin": [
         "bin/migrate.php"
     ],
