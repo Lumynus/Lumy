@@ -14,19 +14,19 @@
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](https://lumynus.dev/)
 
 <p align="center">
-  <a href="README_pt.md"><strong>🇧🇷 Ler em Português (README_pt.md)</strong></a> •
-  <a href="https://lumy.lumynus.dev/"><strong>📚 Official Documentation (lumy.lumynus.dev)</strong></a> •
-  <a href="https://lumynus.dev/"><strong>🌐 Main Website (lumynus.dev)</strong></a> •
-  <a href="#-4-all-ways-to-use-lumy"><strong>🚀 Quick Start</strong></a> •
-  <a href="#-9-transactions-all-usage-patterns"><strong>🔄 Transactions</strong></a> •
-  <a href="examples/README.md"><strong>💻 Runnable Examples</strong></a>
+  <a href="README_pt.md"><strong>Ler em Português (README_pt.md)</strong></a> •
+  <a href="https://lumy.lumynus.dev/"><strong>Official Documentation (lumy.lumynus.dev)</strong></a> •
+  <a href="https://lumynus.dev/"><strong>Main Website (lumynus.dev)</strong></a> •
+  <a href="#4-all-ways-to-use-lumy"><strong>Quick Start</strong></a> •
+  <a href="#9-transactions-all-usage-patterns"><strong>Transactions</strong></a> •
+  <a href="examples/README.md"><strong>Runnable Examples</strong></a>
 </p>
 
 </div>
 
 ---
 
-## 🧠 What is Lumy? (MicroORM, Query Builder, or Data Gateway?)
+## What is Lumy? (MicroORM, Query Builder, or Data Gateway?)
 
 **Lumy** is a **Hybrid Data-First MicroORM (*Array-First Data Mapper & Table Data Gateway*)** with a **native multi-dialect SQL translator** and a **built-in SQL migrations runner**.
 
@@ -61,40 +61,40 @@ In practice, it sits at the sweet spot between **raw PDO** (which requires repet
 
 ---
 
-## ✨ Key Advantages of Lumy
+## Key Advantages of Lumy
 
-- ⚡ **Predictable Performance:** No hidden lazy-loading firing dozens of silent queries. Relationships are loaded only when requested via `with`, always in batches (*1 query per relation*).
-- 🛡️ **Secure by Design:**
+- **Predictable Performance:** No hidden lazy-loading firing dozens of silent queries. Relationships are loaded only when requested via `with`, always in batches (*1 query per relation*).
+- **Secure by Design:**
   - 100% of values in `insert`, `upsert`, `update`, `delete`, and `select` use typed *prepared statements*;
   - Strict regex validation on SQL identifiers against SQL Injection;
   - Automatic column *whitelist* when `$fields` is defined (blocks filtering or sorting by unauthorized columns);
   - Built-in protection blocking `UPDATE` and `DELETE` without a `WHERE` clause;
   - Passwords protected with `#[\SensitiveParameter]` (never leaked in logs or stack traces);
   - DSN sanitization and automatic wildcard escaping (`%`, `_`, `\`) in `LIKE` searches.
-- 🔄 **Powerful & Flexible Transactions:** Global `transaction($transaction, $rollback)` function that rolls back automatically by default or executes your custom rollback/compensation callback, with full support for nested transactions (`SAVEPOINT`).
-- 🔌 **Smart Connection Pool & Multi-Connection:** Work with multiple databases simultaneously (e.g., PostgreSQL as primary + SQLite/MySQL for audit logs or legacy ERP) — including cross-connection relationships between Models!
+- **Powerful & Flexible Transactions:** Global `transaction($transaction, $rollback)` function that rolls back automatically by default or executes your custom rollback/compensation callback, with full support for nested transactions (`SAVEPOINT`).
+- **Smart Connection Pool & Multi-Connection:** Work with multiple databases simultaneously (e.g., PostgreSQL as primary + SQLite/MySQL for audit logs or legacy ERP) — including cross-connection relationships between Models!
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
-1. [Supported Databases](#-1-supported-databases)
-2. [Installation](#-2-installation)
-3. [Configuring Each Database](#-3-configuring-each-database)
-4. [All Ways to Use Lumy (Instant, Structured & Custom SQL)](#-4-all-ways-to-use-lumy)
-5. [CRUD Operations & Multi-Dialect Upsert](#-5-crud-operations--multi-dialect-upsert)
-6. [Queries, Standardized Pagination (`data` / `meta`) & Filter Operators](#-6-queries-standardized-pagination-data--meta--filter-operators)
-7. [Relationships (`1:1`, `1:N`, Nested & Cross-Connection)](#-7-relationships-11-1n-nested--cross-connection)
-8. [Joins, Aliases & Aggregations (`GROUP BY` / `HAVING`)](#-8-joins-aliases--aggregations-group-by--having)
-9. [Transactions (All Usage Patterns)](#-9-transactions-all-usage-patterns)
-10. [Multiple Connections & Pool Management](#-10-multiple-connections--pool-management)
-11. [SQL Migrations (All Ways to Run)](#-11-sql-migrations-all-ways-to-run)
-12. [Security & Best Practices](#-12-security--best-practices)
-13. [Runnable Examples & Official Links](#-13-runnable-examples--official-links)
+1. [Supported Databases](#1-supported-databases)
+2. [Installation](#2-installation)
+3. [Configuring Each Database](#3-configuring-each-database)
+4. [All Ways to Use Lumy (Instant, Structured & Custom SQL)](#4-all-ways-to-use-lumy)
+5. [CRUD Operations & Multi-Dialect Upsert](#5-crud-operations--multi-dialect-upsert)
+6. [Queries, Standardized Pagination (`data` / `meta`) & Filter Operators](#6-queries-standardized-pagination-data--meta--filter-operators)
+7. [Relationships (`1:1`, `1:N`, Nested & Cross-Connection)](#7-relationships-11-1n-nested--cross-connection)
+8. [Joins, Aliases & Aggregations (`GROUP BY` / `HAVING`)](#8-joins-aliases--aggregations-group-by--having)
+9. [Transactions (All Usage Patterns)](#9-transactions-all-usage-patterns)
+10. [Multiple Connections & Pool Management](#10-multiple-connections--pool-management)
+11. [SQL Migrations (All Ways to Run)](#11-sql-migrations-all-ways-to-run)
+12. [Security & Best Practices](#12-security--best-practices)
+13. [Runnable Examples & Official Links](#13-runnable-examples--official-links)
 
 ---
 
-## 🗄️ 1. Supported Databases
+## 1. Supported Databases
 
 Lumy natively abstracts **5 relational database families**:
 
@@ -108,7 +108,7 @@ Lumy natively abstracts **5 relational database families**:
 
 ---
 
-## 📦 2. Installation
+## 2. Installation
 
 Requires **PHP 8.2 or higher** (fully compatible with PHP 8.2, 8.3, 8.4, and 8.5).
 
@@ -118,7 +118,7 @@ composer require lumynus/lumy
 
 ---
 
-## ⚙️ 3. Configuring Each Database
+## 3. Configuring Each Database
 
 Connections are registered in memory via `new Config(...)` or `Config::setConnection(...)`. Lumy uses *lazy connections*: the underlying database socket is only opened when the first query is executed.
 
@@ -218,7 +218,7 @@ Config::setConnection(
 
 ---
 
-## 🚀 4. All Ways to Use Lumy
+## 4. All Ways to Use Lumy
 
 Lumy provides **3 complementary ways** to interact with your database:
 
@@ -319,7 +319,7 @@ class ReportModel extends AbstractModel
 
 ---
 
-## ✍️ 5. CRUD Operations & Multi-Dialect Upsert
+## 5. CRUD Operations & Multi-Dialect Upsert
 
 Every Model (`Model` and `AbstractModel` subclasses) provides the following methods:
 
@@ -382,7 +382,7 @@ $deleted = $userModel->delete(
 
 ---
 
-## 🔍 6. Queries, Standardized Pagination (`data` / `meta`) & Filter Operators
+## 6. Queries, Standardized Pagination (`data` / `meta`) & Filter Operators
 
 ### 6.1. Standardized `select()` Return Format
 
@@ -468,7 +468,7 @@ $meta = $result['meta'];
 
 ---
 
-## 🔗 7. Relationships (`1:1`, `1:N`, Nested & Cross-Connection)
+## 7. Relationships (`1:1`, `1:N`, Nested & Cross-Connection)
 
 Lumy resolves relationships via *Batch Eager Loading*: it first fetches the exact page from the parent table and then loads all child records for that page using a single `WHERE foreign_key IN (...)` query per relationship. This **eliminates N+1 queries** and **prevents pagination `LIMIT` corruption** caused by `JOIN` row multiplication.
 
@@ -518,7 +518,7 @@ $customers = (new CustomerModel())->select(
 
 ---
 
-## 📊 8. Joins, Aliases & Aggregations (`GROUP BY` / `HAVING`)
+## 8. Joins, Aliases & Aggregations (`GROUP BY` / `HAVING`)
 
 For analytical reports and aggregated queries, define `$alias`, `$joins`, SQL aggregate functions in `$fields` (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`), and `$groupBy`. When you filter by an aggregate field in `filters`, Lumy automatically places that condition in `HAVING` (both in the main query and in the `totalRecords` count query):
 
@@ -550,7 +550,7 @@ $report = (new SaleReportModel())->select(
 
 ---
 
-## 🔄 9. Transactions (All Usage Patterns)
+## 9. Transactions (All Usage Patterns)
 
 Lumy provides the **global `transaction()` function** (as well as `\Lumynus\Lumy\transaction()`, `LumyConnection::runTransaction()`, and `$model->transaction()`):
 
@@ -670,7 +670,7 @@ try {
 
 ---
 
-## 🔌 10. Multiple Connections & Pool Management
+## 10. Multiple Connections & Pool Management
 
 `LumyConnection` maintains an in-memory pool of reusable connections throughout the PHP process lifecycle, indexed by a SHA-256 hash of the credentials and `connectionIdentifier`.
 
@@ -693,7 +693,7 @@ LumyConnection::closeAll();
 
 ---
 
-## 🗂️ 11. SQL Migrations (All Ways to Run)
+## 11. SQL Migrations (All Ways to Run)
 
 Lumy includes a native **SQL Migrations Runner** (`Lumynus\Lumy\Migrations` and `bin/migrate.php`) that executes pending `.sql` files in natural sort order (`001_...`, `002_...`) and tracks applied versions in the `lumy_migrations` table.
 
@@ -717,7 +717,7 @@ So that you are **never locked into a rigid folder or class structure**, `bin/mi
 #### Supported Ways to Declare `Config` (All Recognized by the CLI):
 
 ```php
-// ✅ Form A: In any config or bootstrap file (e.g., config/database.php or src/Infra/db.php)
+// Form A: In any config or bootstrap file (e.g., config/database.php or src/Infra/db.php)
 use Lumynus\Lumy\Config;
 
 Config::setConnection(
@@ -731,7 +731,7 @@ Config::setConnection(
 ```
 
 ```php
-// ✅ Form B: At the top of a Model or Class file (outside the class { ... } block)
+// Form B: At the top of a Model or Class file (outside the class { ... } block)
 namespace App\Models;
 
 use Lumynus\Lumy\AbstractModel;
@@ -746,7 +746,7 @@ class UserModel extends AbstractModel
 ```
 
 ```php
-// ✅ Form C: Inside __construct() of a Model or BaseModel (invoked via Reflection by the CLI)
+// Form C: Inside __construct() of a Model or BaseModel (invoked via Reflection by the CLI)
 namespace App\Models;
 
 use Lumynus\Lumy\AbstractModel;
@@ -771,7 +771,7 @@ abstract class BaseModel extends AbstractModel
 ```
 
 ```php
-// ✅ Form D: Inside a method of any Configuration Class (e.g., Database::init())
+// Form D: Inside a method of any Configuration Class (e.g., Database::init())
 namespace App\Core;
 
 use Lumynus\Lumy\Config;
@@ -790,7 +790,7 @@ class Database
 ```
 
 ```php
-// ✅ Form E: In a file that returns a Closure / anonymous function
+// Form E: In a file that returns a Closure / anonymous function
 use Lumynus\Lumy\Config;
 
 return static function (): void {
@@ -923,7 +923,7 @@ Lumy resolves which migrations folder to use in the following order:
 
 ---
 
-## 🛡️ 12. Security & Best Practices
+## 12. Security & Best Practices
 
 1. **Native Prepared Statements on 100% of Values:** No value in `insert`, `upsert`, `update`, `delete`, or `select` is ever interpolated into SQL strings. On MySQL, `EMULATE_PREPARES` and `MULTI_STATEMENTS` are disabled.
 2. **Strict SQL Identifier Validation:** Table names, columns, and aliases are validated against `/\A[A-Za-z_][A-Za-z0-9_]*\z/`, preventing SQL Injection via array keys.
@@ -934,7 +934,7 @@ Lumy resolves which migrations folder to use in the following order:
 
 ---
 
-## 💻 13. Runnable Examples & Official Links
+## 13. Runnable Examples & Official Links
 
 Explore the [`examples/`](examples/README.md) directory to run self-contained scripts (using in-memory SQLite, with zero external database setup required):
 
@@ -957,10 +957,10 @@ php tests/example1.php
 ```
 
 ### Detailed Repository Guides
-- 📘 [Complete Transactions Guide (`docs/Transactions.md`)](docs/Transactions.md)
-- 🗄️ [Complete Databases Guide (`docs/Databases.md`)](docs/Databases.md)
-- 🧩 [Models Reference (`docs/Model.md`)](docs/Model.md)
-- 📦 [Migrations Reference (`docs/Migrations.md`)](docs/Migrations.md)
+- [Complete Transactions Guide (`docs/Transactions.md`)](docs/Transactions.md)
+- [Complete Databases Guide (`docs/Databases.md`)](docs/Databases.md)
+- [Models Reference (`docs/Model.md`)](docs/Model.md)
+- [Migrations Reference (`docs/Migrations.md`)](docs/Migrations.md)
 
 ---
 

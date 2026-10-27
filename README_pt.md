@@ -14,19 +14,19 @@
 [![License](https://img.shields.io/badge/License-MIT-f59e0b?style=for-the-badge)](https://lumynus.dev/)
 
 <p align="center">
-  <a href="README.md"><strong>🇺🇸 Read in English (README.md)</strong></a> •
-  <a href="https://lumy.lumynus.dev/"><strong>📚 Documentação Oficial (lumy.lumynus.dev)</strong></a> •
-  <a href="https://lumynus.dev/"><strong>🌐 Site Principal (lumynus.dev)</strong></a> •
-  <a href="#-4-todas-as-formas-de-usar"><strong>🚀 Guia Rápido</strong></a> •
-  <a href="#-9-transações-todas-as-formas-de-uso"><strong>🔄 Transações</strong></a> •
-  <a href="examples/README.md"><strong>💻 Exemplos Executáveis</strong></a>
+  <a href="README.md"><strong>Read in English (README.md)</strong></a> •
+  <a href="https://lumy.lumynus.dev/"><strong>Documentação Oficial (lumy.lumynus.dev)</strong></a> •
+  <a href="https://lumynus.dev/"><strong>Site Principal (lumynus.dev)</strong></a> •
+  <a href="#4-todas-as-formas-de-usar"><strong>Guia Rápido</strong></a> •
+  <a href="#9-transações-todas-as-formas-de-uso"><strong>Transações</strong></a> •
+  <a href="examples/README.md"><strong>Exemplos Executáveis</strong></a>
 </p>
 
 </div>
 
 ---
 
-## 🧠 O que é o Lumy? (MicroORM, Query Builder ou Data Gateway?)
+## O que é o Lumy? (MicroORM, Query Builder ou Data Gateway?)
 
 O **Lumy** é um **MicroORM Híbrido orientado a dados (*Array-First Data Mapper & Table Data Gateway*)** com **tradutor nativo de dialetos SQL** e **runner de migrations integrado**.
 
@@ -61,40 +61,40 @@ Na prática, ele ocupa o ponto de equilíbrio ideal entre o **PDO puro** (que ex
 
 ---
 
-## ✨ Principais Vantagens do Lumy
+## Principais Vantagens do Lumy
 
-- ⚡ **Performance Previsível:** Sem *lazy-loading* oculto disparando dezenas de queries escondidas. Relacionamentos são carregados apenas quando solicitados em `with` e sempre em lote (*1 query por relação*).
-- 🛡️ **Segurança por Padrão (*Secure by Design*):**
+- **Performance Previsível:** Sem *lazy-loading* oculto disparando dezenas de queries escondidas. Relacionamentos são carregados apenas quando solicitados em `with` e sempre em lote (*1 query por relação*).
+- **Segurança por Padrão (*Secure by Design*):**
   - 100% dos valores em `insert`, `upsert`, `update`, `delete` e `select` usam *prepared statements* tipados;
   - Identificadores SQL validados por regex estrita contra SQL Injection;
   - *Whitelist* automática quando `$fields` é declarado (impede filtragem ou ordenação por colunas não autorizadas);
   - Bloqueio nativo de `UPDATE` e `DELETE` sem cláusula `WHERE`;
   - Senhas protegidas com `#[\SensitiveParameter]` (nunca vazam em logs ou *stack traces*);
   - Sanitização de DSN e escape automático de curingas (`%`, `_`, `\`) em buscas `LIKE`.
-- 🔄 **Transações Poderosas e Flexíveis:** Função global `transaction($transaction, $rollback)` que faz rollback automático por padrão ou executa a sua rotina customizada de rollback/compensação, com suporte a transações aninhadas (`SAVEPOINT`).
-- 🔌 **Pool Inteligente e Multi-Conexão:** Trabalhe com múltiplos bancos ao mesmo tempo (ex.: PostgreSQL como banco principal + SQLite/MySQL para auditoria ou ERP legado) — inclusive relacionando Models de conexões diferentes!
+- **Transações Poderosas e Flexíveis:** Função global `transaction($transaction, $rollback)` que faz rollback automático por padrão ou executa a sua rotina customizada de rollback/compensação, com suporte a transações aninhadas (`SAVEPOINT`).
+- **Pool Inteligente e Multi-Conexão:** Trabalhe com múltiplos bancos ao mesmo tempo (ex.: PostgreSQL como banco principal + SQLite/MySQL para auditoria ou ERP legado) — inclusive relacionando Models de conexões diferentes!
 
 ---
 
-## 📖 Sumário
+## Sumário
 
-1. [Bancos de Dados Suportados](#-1-bancos-de-dados-suportados)
-2. [Instalação](#-2-instalação)
-3. [Como Configurar Cada Banco de Dados](#-3-como-configurar-cada-banco-de-dados)
-4. [Todas as Formas de Usar (Instantâneo, Estruturado e Custom SQL)](#-4-todas-as-formas-de-usar)
-5. [Operações CRUD e Upsert Multi-Dialeto](#-5-operações-crud-e-upsert-multi-dialeto)
-6. [Consultas, Paginação Padronizada (`data` / `meta`) e Operadores de Filtro](#-6-consultas-paginação-padronizada-data--meta-e-operadores-de-filtro)
-7. [Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)](#-7-relacionamentos-11-1n-aninhados-e-multi-conexão)
-8. [Joins, Aliases e Agregações (`GROUP BY` / `HAVING`)](#-8-joins-aliases-e-agregações-group-by--having)
-9. [Transações (Todas as Formas de Uso)](#-9-transações-todas-as-formas-de-uso)
-10. [Múltiplas Conexões e Gerenciamento de Pool](#-10-múltiplas-conexões-e-gerenciamento-de-pool)
-11. [Migrations SQL (Todas as Formas de Executar)](#-11-migrations-sql-todas-as-formas-de-executar)
-12. [Segurança e Boas Práticas](#-12-segurança-e-boas-práticas)
-13. [Exemplos Executáveis e Links Oficiais](#-13-exemplos-executáveis-e-links-oficiais)
+1. [Bancos de Dados Suportados](#1-bancos-de-dados-suportados)
+2. [Instalação](#2-instalação)
+3. [Como Configurar Cada Banco de Dados](#3-como-configurar-cada-banco-de-dados)
+4. [Todas as Formas de Usar (Instantâneo, Estruturado e Custom SQL)](#4-todas-as-formas-de-usar)
+5. [Operações CRUD e Upsert Multi-Dialeto](#5-operações-crud-e-upsert-multi-dialeto)
+6. [Consultas, Paginação Padronizada (`data` / `meta`) e Operadores de Filtro](#6-consultas-paginação-padronizada-data--meta-e-operadores-de-filtro)
+7. [Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)](#7-relacionamentos-11-1n-aninhados-e-multi-conexão)
+8. [Joins, Aliases e Agregações (`GROUP BY` / `HAVING`)](#8-joins-aliases-e-agregações-group-by--having)
+9. [Transações (Todas as Formas de Uso)](#9-transações-todas-as-formas-de-uso)
+10. [Múltiplas Conexões e Gerenciamento de Pool](#10-múltiplas-conexões-e-gerenciamento-de-pool)
+11. [Migrations SQL (Todas as Formas de Executar)](#11-migrations-sql-todas-as-formas-de-executar)
+12. [Segurança e Boas Práticas](#12-segurança-e-boas-práticas)
+13. [Exemplos Executáveis e Links Oficiais](#13-exemplos-executáveis-e-links-oficiais)
 
 ---
 
-## 🗄️ 1. Bancos de Dados Suportados
+## 1. Bancos de Dados Suportados
 
 O Lumy abstrai nativamente **5 famílias de bancos de dados relacionais**:
 
@@ -108,7 +108,7 @@ O Lumy abstrai nativamente **5 famílias de bancos de dados relacionais**:
 
 ---
 
-## 📦 2. Instalação
+## 2. Instalação
 
 Requer **PHP 8.2 ou superior** (totalmente compatível com PHP 8.2, 8.3, 8.4 e 8.5).
 
@@ -118,7 +118,7 @@ composer require lumynus/lumy
 
 ---
 
-## ⚙️ 3. Como Configurar Cada Banco de Dados
+## 3. Como Configurar Cada Banco de Dados
 
 As conexões são registradas em memória por meio de `new Config(...)` ou `Config::setConnection(...)`. O Lumy trabalha com *lazy connection*: a conexão real com o banco só é aberta quando a primeira query é executada.
 
@@ -218,7 +218,7 @@ Config::setConnection(
 
 ---
 
-## 🚀 4. Todas as Formas de Usar
+## 4. Todas as Formas de Usar
 
 O Lumy oferece **3 formas complementares** de interagir com o banco de dados:
 
@@ -319,7 +319,7 @@ class ReportModel extends AbstractModel
 
 ---
 
-## ✍️ 5. Operações CRUD e Upsert Multi-Dialeto
+## 5. Operações CRUD e Upsert Multi-Dialeto
 
 Todas as Models (`Model` e subclasses de `AbstractModel`) possuem os métodos abaixo:
 
@@ -382,7 +382,7 @@ $deleted = $userModel->delete(
 
 ---
 
-## 🔍 6. Consultas, Paginação Padronizada (`data` / `meta`) e Operadores de Filtro
+## 6. Consultas, Paginação Padronizada (`data` / `meta`) e Operadores de Filtro
 
 ### 6.1. Formato de Retorno Padronizado do `select()`
 
@@ -468,7 +468,7 @@ $meta = $result['meta'];
 
 ---
 
-## 🔗 7. Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)
+## 7. Relacionamentos (`1:1`, `1:N`, Aninhados e Multi-Conexão)
 
 O Lumy resolve relacionamentos via *Batch Eager Loading*: primeiro busca a página exata da tabela pai e depois busca todos os registros filhos daquela página com uma única query `WHERE foreign_key IN (...)` por relacionamento. Isso **elimina o problema de N+1 queries** e **impede que o `LIMIT` da paginação seja corrompido** pela multiplicação de linhas de um `JOIN`.
 
@@ -518,7 +518,7 @@ $customers = (new CustomerModel())->select(
 
 ---
 
-## 📊 8. Joins, Aliases e Agregações (`GROUP BY` / `HAVING`)
+## 8. Joins, Aliases e Agregações (`GROUP BY` / `HAVING`)
 
 Para relatórios analíticos e consultas agregadas, declare `$alias`, `$joins`, funções SQL em `$fields` (`COUNT`, `SUM`, `AVG`, `MIN`, `MAX`) e `$groupBy`. Quando você filtra por um campo agregado em `filters`, o Lumy move automaticamente a condição para a cláusula `HAVING` (tanto na query de dados quanto na contagem `totalRecords`):
 
@@ -550,7 +550,7 @@ $report = (new SaleReportModel())->select(
 
 ---
 
-## 🔄 9. Transações (Todas as Formas de Uso)
+## 9. Transações (Todas as Formas de Uso)
 
 O Lumy disponibiliza a **função global `transaction()`** (além de `\Lumynus\Lumy\transaction()`, `LumyConnection::runTransaction()` e `$model->transaction()`):
 
@@ -670,7 +670,7 @@ try {
 
 ---
 
-## 🔌 10. Múltiplas Conexões e Gerenciamento de Pool
+## 10. Múltiplas Conexões e Gerenciamento de Pool
 
 O `LumyConnection` mantém um pool de conexões reutilizáveis em memória durante o ciclo de vida do processo PHP, indexado por um hash SHA-256 das credenciais e do `connectionIdentifier`.
 
@@ -693,7 +693,7 @@ LumyConnection::closeAll();
 
 ---
 
-## 🗂️ 11. Migrations SQL (Todas as Formas de Executar)
+## 11. Migrations SQL (Todas as Formas de Executar)
 
 O Lumy inclui um **Runner de Migrations SQL** nativo (`Lumynus\Lumy\Migrations` e `bin/migrate.php`) que executa arquivos `.sql` pendentes em ordem natural (`001_...`, `002_...`) e registra o histórico na tabela `lumy_migrations`.
 
@@ -717,7 +717,7 @@ Para que você **não fique preso a uma estrutura única de pastas ou de código
 #### Formas Suportadas de Declarar o `Config` (Todas Reconhecidas pelo CLI):
 
 ```php
-// ✅ Forma A: Em qualquer arquivo de configuração ou bootstrap (ex.: config/database.php ou src/Infra/db.php)
+// Forma A: Em qualquer arquivo de configuração ou bootstrap (ex.: config/database.php ou src/Infra/db.php)
 use Lumynus\Lumy\Config;
 
 Config::setConnection(
@@ -731,7 +731,7 @@ Config::setConnection(
 ```
 
 ```php
-// ✅ Forma B: No topo do arquivo de uma Model ou Classe (fora do bloco class { ... })
+// Forma B: No topo do arquivo de uma Model ou Classe (fora do bloco class { ... })
 namespace App\Models;
 
 use Lumynus\Lumy\AbstractModel;
@@ -746,7 +746,7 @@ class UserModel extends AbstractModel
 ```
 
 ```php
-// ✅ Forma C: Dentro do __construct() de uma Model ou BaseModel (executado via Reflection pelo CLI)
+// Forma C: Dentro do __construct() de uma Model ou BaseModel (executado via Reflection pelo CLI)
 namespace App\Models;
 
 use Lumynus\Lumy\AbstractModel;
@@ -771,7 +771,7 @@ abstract class BaseModel extends AbstractModel
 ```
 
 ```php
-// ✅ Forma D: Dentro de um método de qualquer Classe de Configuração (ex.: Database::init())
+// Forma D: Dentro de um método de qualquer Classe de Configuração (ex.: Database::init())
 namespace App\Core;
 
 use Lumynus\Lumy\Config;
@@ -790,7 +790,7 @@ class Database
 ```
 
 ```php
-// ✅ Forma E: Em um arquivo que retorna uma Closure / função anônima
+// Forma E: Em um arquivo que retorna uma Closure / função anônima
 use Lumynus\Lumy\Config;
 
 return static function (): void {
@@ -923,7 +923,7 @@ O Lumy resolve qual pasta de migrations usar nesta ordem:
 
 ---
 
-## 🛡️ 12. Segurança e Boas Práticas
+## 12. Segurança e Boas Práticas
 
 1. **Prepared Statements Nativos em 100% dos Valores:** Nenhum valor de `insert`, `upsert`, `update`, `delete` ou `select` é concatenado na query. No MySQL, `EMULATE_PREPARES` e `MULTI_STATEMENTS` ficam desativados.
 2. **Validação Estrita de Identificadores SQL:** Nomes de tabelas, colunas e aliases passam por validação regex (`/\A[A-Za-z_][A-Za-z0-9_]*\z/`), impedindo SQL Injection via chaves de array.
@@ -934,7 +934,7 @@ O Lumy resolve qual pasta de migrations usar nesta ordem:
 
 ---
 
-## 💻 13. Exemplos Executáveis e Links Oficiais
+## 13. Exemplos Executáveis e Links Oficiais
 
 Explore a pasta [`examples/`](examples/README.md) para testar scripts prontos e independentes (usando SQLite em memória, sem precisar subir servidores externos):
 
@@ -957,10 +957,10 @@ php tests/example1.php
 ```
 
 ### Guias Detalhados no Repositório
-- 📘 [Guia Completo de Transações (`docs/Transactions.md`)](docs/Transactions.md)
-- 🗄️ [Guia Completo dos Bancos de Dados (`docs/Databases.md`)](docs/Databases.md)
-- 🧩 [Referência de Models (`docs/Model.md`)](docs/Model.md)
-- 📦 [Referência de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
+- [Guia Completo de Transações (`docs/Transactions.md`)](docs/Transactions.md)
+- [Guia Completo dos Bancos de Dados (`docs/Databases.md`)](docs/Databases.md)
+- [Referência de Models (`docs/Model.md`)](docs/Model.md)
+- [Referência de Migrations (`docs/Migrations.md`)](docs/Migrations.md)
 
 ---
 
