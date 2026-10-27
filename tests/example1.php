@@ -353,6 +353,40 @@ assertSameValue([], $secondRun, 'Segunda execucao nao deve reaplicar migrations 
 $userCount = $authors->rawQuery('SELECT COUNT(*) AS total FROM suite_users');
 assertSameValue(0, (int) $userCount[0]['total'], 'Tabela criada pela migration deve existir e estar vazia');
 
+// 11.1. CLI bin/migrate.php: Auto-discovery das Formas A, B, C, D e E do README
+$migrateBin = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'migrate.php';
+$runCliMigrate = static function (string $connId, string $bootstrapPath) use ($migrateBin, $migrationsDir): array {
+    $cmd = sprintf(
+        '"%s" -d extension=pdo_sqlite "%s" %s "%s" "%s" 2>&1',
+        PHP_BINARY,
+        $migrateBin,
+        $connId,
+        $bootstrapPath,
+        $migrationsDir
+    );
+    $output = [];
+    $code = 0;
+    exec($cmd, $output, $code);
+
+    return [$code, implode("\n", $output)];
+};
+
+$cfgFiles = [
+    'cli_a' => [$migrationsDir . '/cfg_a.php', "<?php\nuse Lumynus\\Lumy\\Config;\nConfig::setConnection('cli_a', driver: 'sqlite', database: ':memory:');\n"],
+    'cli_b' => [$migrationsDir . '/cfg_b.php', "<?php\nuse Lumynus\\Lumy\\AbstractModel;\nuse Lumynus\\Lumy\\Config;\nnew Config(driver: 'sqlite', database: ':memory:', connectionIdentifier: 'cli_b');\nclass SuiteCliModelB extends AbstractModel { protected string \$table = 'suite_users'; }\n"],
+    'cli_c' => [$migrationsDir . '/cfg_c.php', "<?php\nuse Lumynus\\Lumy\\AbstractModel;\nuse Lumynus\\Lumy\\Config;\nabstract class SuiteCliBaseModelC extends AbstractModel {\n    public function __construct(string \$id = 'cli_c') {\n        new Config(driver: 'sqlite', database: ':memory:', connectionIdentifier: 'cli_c');\n        parent::__construct(\$id);\n    }\n}\n"],
+    'cli_d' => [$migrationsDir . '/cfg_d.php', "<?php\nuse Lumynus\\Lumy\\Config;\nclass SuiteCliDatabaseD {\n    public static function init(): void {\n        Config::setConnection('cli_d', driver: 'sqlite', database: ':memory:');\n    }\n}\n"],
+    'cli_e' => [$migrationsDir . '/cfg_e.php', "<?php\nuse Lumynus\\Lumy\\Config;\nreturn static function (): void {\n    Config::setConnection('cli_e', driver: 'sqlite', database: ':memory:');\n};\n"],
+];
+
+foreach ($cfgFiles as $connId => [$cfgPath, $cfgCode]) {
+    file_put_contents($cfgPath, $cfgCode);
+    [$exitCode, $cliOut] = $runCliMigrate($connId, $cfgPath);
+    assertSameValue(0, $exitCode, "CLI migrate deve ter sucesso para {$connId}");
+    assertSameValue(true, str_contains($cliOut, 'Applied: 001_create_users.sql'), "CLI migrate deve aplicar 001_create_users.sql para {$connId}");
+    @unlink($cfgPath);
+}
+
 array_map('unlink', glob($migrationsDir . DIRECTORY_SEPARATOR . '*.sql') ?: []);
 @rmdir($migrationsDir);
 

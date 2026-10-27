@@ -92,14 +92,24 @@ $loadConfigFile = static function (string $filePath) use ($connectionIdentifier,
             }
 
             try {
+                $hasAbstractMethods = array_filter(
+                    $reflection->getMethods(),
+                    static fn (ReflectionMethod $m): bool => $m->isAbstract()
+                ) !== [];
+
                 if ($method->isStatic()) {
                     $method->invoke(null);
                 } elseif (!$reflection->isAbstract()) {
                     $instance = $reflection->newInstanceWithoutConstructor();
                     $method->invoke($instance);
-                } elseif ( count($reflection->getAbstractMethods()) === 0) {
-                    $anon = eval("return new class extends \\{$className} { public function __construct() {} };");
-                    $method->invoke($anon);
+                } elseif (!$hasAbstractMethods) {
+                    $fqcn = '\\' . ltrim($className, '\\');
+                    if ($method->isConstructor()) {
+                        eval('new class extends ' . $fqcn . ' {};');
+                    } else {
+                        $anon = eval('return new class extends ' . $fqcn . ' { public function __construct() {} };');
+                        $method->invoke($anon);
+                    }
                 }
             } catch (Throwable) {
                 // Ignore downstream errors after Config registration (e.g. missing table in base model)
