@@ -25,32 +25,96 @@ definidas por meio de **3 etapas automáticas**:
    - `config/database.php`, `config/lumy.php`, `config/db.php`, `config/config.php`
    - `app/Config/database.php`, `app/Config/Database.php`, `src/Config/database.php`
    - `database/config.php`, `bootstrap/database.php`, `bootstrap/app.php`
-3. **Auto-Discovery em qualquer pasta do projeto:**
+3. **Auto-Discovery em qualquer pasta, Model ou Classe do projeto:**
    Se a conexão ainda não tiver sido registrada após a etapa anterior, o CLI
    vasculha automaticamente os arquivos `.php` do seu projeto (ignorando pastas
    como `vendor`, `node_modules`, `tests`, `examples`, `bin` e `public/index.php`)
    em busca de chamadas a `Config::setConnection(...)` ou `new Config(...)`,
    carregando-os até localizar o `connectionIdentifier` solicitado.
 
-Exemplo de arquivo de configuração (em qualquer pasta do projeto):
+### Formas Suportadas de Declarar o `Config` no Projeto
 
-```php
-<?php
+O carregador do `bin/migrate.php` reconhece automaticamente qualquer uma das 5
+formas abaixo:
 
-declare(strict_types=1);
+1. **No escopo de qualquer arquivo `.php` (ex.: `config/database.php`, `bootstrap.php`, `src/Infra/db.php`):**
+   ```php
+   use Lumynus\Lumy\Config;
 
-use Lumynus\Lumy\Config;
+   new Config(
+       driver: 'mysql',
+       host: '127.0.0.1',
+       user: 'app_user',
+       password: getenv('DB_PASSWORD') ?: '',
+       database: 'app_db',
+       connectionIdentifier: 'default',
+       migrationsPath: __DIR__ . '/database/migrations'
+   );
+   ```
 
-new Config(
-    driver: 'mysql',
-    host: '127.0.0.1',
-    user: 'app_user',
-    password: getenv('DB_PASSWORD') ?: '',
-    database: 'app_db',
-    connectionIdentifier: 'default',
-    migrationsPath: __DIR__ . '/database/migrations'
-);
-```
+2. **No topo de um arquivo de Model ou Classe (fora da declaração `class { ... }`):**
+   ```php
+   namespace App\Models;
+
+   use Lumynus\Lumy\AbstractModel;
+   use Lumynus\Lumy\Config;
+
+   Config::setConnection('default', driver: 'mysql', host: '127.0.0.1', user: 'root', password: '', database: 'app_db');
+
+   class UserModel extends AbstractModel
+   {
+       protected string $table = 'users';
+   }
+   ```
+
+3. **Dentro do `__construct()` de uma Model ou `BaseModel` (executado via `ReflectionClass`):**
+   ```php
+   namespace App\Models;
+
+   use Lumynus\Lumy\AbstractModel;
+   use Lumynus\Lumy\Config;
+
+   abstract class BaseModel extends AbstractModel
+   {
+       public function __construct(string $connectionIdentifier = 'default')
+       {
+           new Config(
+               driver: 'mysql',
+               host: '127.0.0.1',
+               user: 'root',
+               password: '',
+               database: 'app_db',
+               connectionIdentifier: 'default'
+           );
+
+           parent::__construct($connectionIdentifier);
+       }
+   }
+   ```
+
+4. **Dentro de um método sem parâmetros obrigatórios em qualquer Classe (ex.: `Database::init()`):**
+   ```php
+   namespace App\Core;
+
+   use Lumynus\Lumy\Config;
+
+   class Database
+   {
+       public static function init(): void
+       {
+           Config::setConnection('default', driver: 'postgresql', host: '127.0.0.1', user: 'postgres', password: 'secret', database: 'app_db');
+       }
+   }
+   ```
+
+5. **Em um arquivo que retorna uma Closure / função anônima:**
+   ```php
+   use Lumynus\Lumy\Config;
+
+   return static function (): void {
+       Config::setConnection('default', driver: 'sqlite', database: __DIR__ . '/app.sqlite');
+   };
+   ```
 
 `migrationsPath` é opcional e define a pasta de migrations daquela conexão.
 Você pode apontar várias conexões para pastas diferentes:

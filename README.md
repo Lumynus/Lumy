@@ -651,20 +651,104 @@ O Lumy inclui um **Runner de Migrations SQL** nativo (`Lumynus\Lumy\Migrations` 
 
 ### 11.1. Como o CLI encontra o `Config` se ele pode estar em qualquer parte do projeto?
 
-Quando você roda um comando via terminal (`php bin/migrate.php default`), o PHP inicia um processo novo do zero. Como a classe `Config` guarda as conexões na memória desse processo, o CLI precisa carregar o arquivo onde suas conexões (`new Config(...)` ou `Config::setConnection(...)`) foram definidas.
+Quando você roda um comando via terminal (`php vendor/bin/migrate.php default` ou `php bin/migrate.php default`), o PHP inicia um processo novo do zero. Como a classe `Config` guarda as conexões na memória desse processo, o CLI precisa localizar e executar onde suas conexões (`new Config(...)` ou `Config::setConnection(...)`) foram definidas.
 
-Para que você **não fique preso a uma estrutura única de pastas**, o `bin/migrate.php` localiza suas configurações em **3 etapas automáticas**:
+Para que você **não fique preso a uma estrutura única de pastas ou de código**, o `bin/migrate.php` localiza suas configurações em **3 etapas automáticas**:
 
 1. **Etapa 1 — Caminho Explícito (2º argumento do CLI):**
-   Se você passar o caminho do seu arquivo de configuração como segundo argumento (ex.: `php bin/migrate.php default app/Core/DatabaseConfig.php`), ele carrega exatamente esse arquivo.
+   Se você passar o caminho do seu arquivo de configuração como segundo argumento (ex.: `php vendor/bin/migrate.php default app/Core/DatabaseConfig.php`), ele carrega exatamente esse arquivo.
 2. **Etapa 2 — Locais Convencionais na Raiz do Projeto:**
-   Se você omitir o 2º argumento (`php bin/migrate.php default`), o CLI verifica automaticamente os arquivos mais comuns:
+   Se você omitir o 2º argumento (`php vendor/bin/migrate.php default`), o CLI verifica automaticamente os arquivos mais comuns:
    - `bootstrap.php`, `config.php`
    - `config/database.php`, `config/lumy.php`, `config/db.php`, `config/config.php`
    - `app/Config/database.php`, `app/Config/Database.php`, `src/Config/database.php`
    - `database/config.php`, `bootstrap/database.php`, `bootstrap/app.php`
-3. **Etapa 3 — Auto-Discovery em Qualquer Pasta do Projeto:**
-   Se a sua conexão ainda não tiver sido encontrada nos caminhos acima, o `bin/migrate.php` **vasculha automaticamente as pastas do seu projeto** (ignorando `vendor`, `node_modules`, `tests`, `public/index.php`, etc.), localiza qualquer arquivo `.php` que chame `Config::setConnection(...)` ou `new Config(...)` e o carrega até encontrar o `connectionIdentifier` solicitado!
+3. **Etapa 3 — Auto-Discovery em Qualquer Pasta, Model ou Classe do Projeto:**
+   Se a sua conexão ainda não tiver sido encontrada nos caminhos acima, o `bin/migrate.php` **vasculha automaticamente os arquivos `.php` do seu projeto** (ignorando `vendor`, `node_modules`, `tests`, `public/index.php`, etc.), analisa o código-fonte como texto antes de carregá-lo para encontrar chamadas a `Config::setConnection(...)` ou `new Config(...)` e registra a conexão — **mesmo que ela esteja dentro de uma Model ou Classe!**
+
+#### Formas Suportadas de Declarar o `Config` (Todas Reconhecidas pelo CLI):
+
+```php
+// ✅ Forma A: Em qualquer arquivo de configuração ou bootstrap (ex.: config/database.php ou src/Infra/db.php)
+use Lumynus\Lumy\Config;
+
+Config::setConnection(
+    connectionIdentifier: 'default',
+    driver: 'postgresql',
+    host: '127.0.0.1:5432',
+    user: 'postgres',
+    password: 'secret',
+    database: 'minha_aplicacao'
+);
+```
+
+```php
+// ✅ Forma B: No topo do arquivo de uma Model ou Classe (fora do bloco class { ... })
+namespace App\Models;
+
+use Lumynus\Lumy\AbstractModel;
+use Lumynus\Lumy\Config;
+
+new Config(driver: 'mysql', host: '127.0.0.1', user: 'root', password: '', database: 'app');
+
+class UserModel extends AbstractModel
+{
+    protected string $table = 'users';
+}
+```
+
+```php
+// ✅ Forma C: Dentro do __construct() de uma Model ou BaseModel (executado via Reflection pelo CLI)
+namespace App\Models;
+
+use Lumynus\Lumy\AbstractModel;
+use Lumynus\Lumy\Config;
+
+abstract class BaseModel extends AbstractModel
+{
+    public function __construct(string $connectionIdentifier = 'default')
+    {
+        new Config(
+            driver: 'mysql',
+            host: '127.0.0.1',
+            user: 'root',
+            password: '',
+            database: 'app',
+            connectionIdentifier: 'default'
+        );
+
+        parent::__construct($connectionIdentifier);
+    }
+}
+```
+
+```php
+// ✅ Forma D: Dentro de um método de qualquer Classe de Configuração (ex.: Database::init())
+namespace App\Core;
+
+use Lumynus\Lumy\Config;
+
+class Database
+{
+    public static function init(): void
+    {
+        Config::setConnection(
+            connectionIdentifier: 'default',
+            driver: 'sqlite',
+            database: __DIR__ . '/../../storage/app.sqlite'
+        );
+    }
+}
+```
+
+```php
+// ✅ Forma E: Em um arquivo que retorna uma Closure / função anônima
+use Lumynus\Lumy\Config;
+
+return static function (): void {
+    Config::setConnection('default', driver: 'mysql', host: '127.0.0.1', user: 'root', password: '', database: 'app');
+};
+```
 
 ---
 

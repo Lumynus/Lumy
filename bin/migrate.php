@@ -37,13 +37,78 @@ if ($connectionIdentifier === '') {
     exit(2);
 }
 
+$configCallPattern = '/\bConfig\s*::\s*setConnection\b|\bnew\s+\\\\?(?:Lumynus\\\\Lumy\\\\)?Config\s*\(/';
+
 /**
- * Loads a PHP file and, if it returns a callable, invokes it.
+ * Loads a PHP file and registers its Lumy Config whether defined at file scope,
+ * inside a returned closure, or inside a Model/Class constructor or method.
  */
-$loadConfigFile = static function (string $filePath): void {
-    $result = require_once $filePath;
+$loadConfigFile = static function (string $filePath) use ($connectionIdentifier, $configCallPattern): void {
+    $realTarget = realpath($filePath);
+    if ($realTarget === false) {
+        return;
+    }
+
+    $result = require_once $realTarget;
     if (is_callable($result)) {
-        $result();
+        try {
+            $result();
+        } catch (Throwable) {
+        }
+    }
+
+    if (Config::hasConnection($connectionIdentifier)) {
+        return;
+    }
+
+    $lines = @file($realTarget);
+    if (!is_array($lines)) {
+        return;
+    }
+
+    foreach (get_declared_classes() as $className) {
+        $reflection = new ReflectionClass($className);
+        if ($reflection->getFileName() !== $realTarget) {
+            continue;
+        }
+
+        foreach ($reflection->getMethods() as $method) {
+            if ($method->getFileName() !== $realTarget || $method->isAbstract()) {
+                continue;
+            }
+            if ($method->getNumberOfRequiredParameters() > 0) {
+                continue;
+            }
+
+            $startLine = $method->getStartLine();
+            $endLine = $method->getEndLine();
+            if ($startLine === false || $endLine === false) {
+                continue;
+            }
+
+            $methodBody = implode('', array_slice($lines, $startLine - 1, $endLine - $startLine + 1));
+            if (!preg_match($configCallPattern, $methodBody)) {
+                continue;
+            }
+
+            try {
+                if ($method->isStatic()) {
+                    $method->invoke(null);
+                } elseif (!$reflection->isAbstract()) {
+                    $instance = $reflection->newInstanceWithoutConstructor();
+                    $method->invoke($instance);
+                } elseif ( count($reflection->getAbstractMethods()) === 0) {
+                    $anon = eval("return new class extends \\{$className} { public function __construct() {} };");
+                    $method->invoke($anon);
+                }
+            } catch (Throwable) {
+                // Ignore downstream errors after Config registration (e.g. missing table in base model)
+            }
+
+            if (Config::hasConnection($connectionIdentifier)) {
+                return;
+            }
+        }
     }
 };
 
@@ -80,7 +145,7 @@ if ($explicitBootstrap !== null) {
         }
     }
 
-    // 2. Auto-discover any PHP file in the project that registers a Lumy Config
+    // 2. Auto-discover any PHP file in the project (including Models/Classes) that registers a Lumy Config
     if (!Config::hasConnection($connectionIdentifier) && is_dir($workingRoot)) {
         $excludedDirs = [
             'vendor',
@@ -126,7 +191,7 @@ if ($explicitBootstrap !== null) {
                 continue;
             }
 
-            if (preg_match('/\bConfig\s*::\s*setConnection\b|\bnew\s+\\\\?(?:Lumynus\\\\Lumy\\\\)?Config\s*\(/', $contents)) {
+            if (preg_match($configCallPattern, $contents)) {
                 $loadConfigFile($path);
                 if (Config::hasConnection($connectionIdentifier)) {
                     break;
