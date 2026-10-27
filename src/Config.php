@@ -48,7 +48,7 @@ final class Config
         string $user = 'root',
         #[\SensitiveParameter]
         mixed $password = '',
-        string $database = 'lumy',
+        string $database = '',
         bool $newConnection = false,
         string $connectionIdentifier = 'default',
         ?string $migrationsPath = null,
@@ -87,7 +87,7 @@ final class Config
         string $user = 'root',
         #[\SensitiveParameter]
         mixed $password = '',
-        string $database = 'lumy',
+        string $database = '',
         bool $newConnection = false,
         ?string $migrationsPath = null,
         array $options = []
